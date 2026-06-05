@@ -32,11 +32,19 @@ interface BrandTileProps {
   color: string
   name?: string
   size?: number
+  logoUrl?: string
 }
 
-export function BrandTile({ icon, color, name, size = 38 }: BrandTileProps) {
+export function BrandTile({ icon, color, name, size = 38, logoUrl }: BrandTileProps) {
+  if (logoUrl) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: 10, overflow: 'hidden', flexShrink: 0, border: `1px solid ${color}22`, background: color + '14' }}>
+        <img src={logoUrl} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      </div>
+    )
+  }
   return (
-    <div style={{ width: size, height: size, borderRadius: 10, background: color + '14', color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1px solid ${color}22` }}>
+    <div style={{ width: size, height: size, borderRadius: 10, background: color + '14', color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1px solid ${color}22`, fontSize: size * 0.36, fontWeight: 700 }}>
       {icon ? <Icon name={icon} size={size * 0.5} /> : (name ? name.slice(0, 2).toUpperCase() : '')}
     </div>
   )

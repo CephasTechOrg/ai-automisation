@@ -13,9 +13,12 @@ interface BusinessRead {
   name: string
   slug: string
   industry: string | null
+  phone: string | null
   contact_email: string | null
+  address: string | null
   brand_color: string
   status: string
+  logo_url: string | null
   created_at: string
 }
 
@@ -34,7 +37,7 @@ function timeAgo(isoStr: string) {
 
 function BizMenu(router: ReturnType<typeof useRouter>, businessId: string, token: string | null) {
   return [
-    { icon: 'edit', label: 'Edit Business', onClick: () => router.push('/admin/businesses/new') },
+    { icon: 'edit', label: 'Edit Business', onClick: () => router.push(`/admin/businesses/${businessId}/edit`) },
     { icon: 'copy', label: 'Copy Form Link', onClick: () => toast('Form link copied') },
     {
       icon: 'mail', label: 'Resend Owner Invite', onClick: async () => {
@@ -158,7 +161,7 @@ export default function AdminBusinessesPage() {
                     <div key={b.id} className="mcard" style={{ cursor: 'default', flexDirection: 'column', alignItems: 'stretch' }}>
                       <div className="mcard-row">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
-                          <BrandTile color={b.brand_color} name={b.name} size={38} />
+                          <BrandTile color={b.brand_color} name={b.name} size={38} logoUrl={b.logo_url ?? undefined} />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 14 }} className="trunc">{b.name}</div>
                             <div className="muted trunc" style={{ fontSize: 12 }}>{b.industry ?? '—'}</div>
@@ -193,7 +196,7 @@ export default function AdminBusinessesPage() {
                       <tr key={b.id}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                            <BrandTile color={b.brand_color} name={b.name} size={36} />
+                            <BrandTile color={b.brand_color} name={b.name} size={36} logoUrl={b.logo_url ?? undefined} />
                             <div>
                               <div className="strong">{b.name}</div>
                               <div className="muted" style={{ fontSize: 12 }}>{b.industry ?? '—'}</div>
@@ -273,7 +276,7 @@ export default function AdminBusinessesPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {recentRegistrations.map(b => (
                   <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                    <BrandTile color={b.brand_color} name={b.name} size={32} />
+                    <BrandTile color={b.brand_color} name={b.name} size={32} logoUrl={b.logo_url ?? undefined} />
                     <div className="grow" style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }} className="trunc">{b.name}</div>
                       <div className="muted" style={{ fontSize: 11.5 }}>{timeAgo(b.created_at)}</div>
