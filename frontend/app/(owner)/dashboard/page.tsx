@@ -1,15 +1,40 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Icon, StatCard, Card, AreaChart, Badge, Avatar, CopyLinkBox, useIsMobile } from '@/components/ui'
-import { LEADS, LEAD_VOLUME, FORM_URL } from '@/lib/data/mock'
+import { api } from '@/lib/api/client'
+import { useApiToken } from '@/lib/hooks/useApiToken'
+import { LEAD_VOLUME, FORM_URL } from '@/lib/data/mock'
 
-const KPIS = [
-  { icon: 'users', label: 'New Leads', value: '128', trend: '24% this week', trendDir: 'up' as const, accent: '#2563EB' },
-  { icon: 'clock', label: 'Follow-ups Due', value: '15', trend: '8% this week', trendDir: 'down' as const, accent: '#D97706' },
-  { icon: 'calendar', label: 'Booked', value: '32', trend: '14% this week', trendDir: 'up' as const, accent: '#059669' },
-  { icon: 'target', label: 'Response Rate', value: '94%', trend: '6% this week', trendDir: 'up' as const, accent: '#0891B2' },
-]
+interface LeadRead {
+  id: string
+  customer_name: string
+  customer_email: string | null
+  customer_phone: string | null
+  service_needed: string | null
+  status: string
+  created_at: string
+}
+
+const STATUS_DISPLAY: Record<string, string> = {
+  new: 'New', contacted: 'Contacted', booked: 'Booked',
+  follow_up: 'Follow-up', lost: 'Lost', archived: 'Archived',
+}
+
+function initials(name: string) {
+  const p = name.trim().split(/\s+/)
+  return (p.length >= 2 ? p[0][0] + p[1][0] : p[0].slice(0, 2)).toUpperCase()
+}
+
+function timeAgo(isoStr: string) {
+  const m = Math.floor((Date.now() - new Date(isoStr).getTime()) / 60000)
+  if (m < 1) return 'Just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
 
 const INSIGHTS = [
   { icon: 'messageDots', t: 'Follow-ups need attention', d: '3 leads are waiting for follow-up today.' },
@@ -19,28 +44,44 @@ const INSIGHTS = [
 
 export default function OwnerDashboardPage() {
   const router = useRouter()
+  const token = useApiToken()
   const isMobile = useIsMobile(900)
-  const recent = LEADS.slice(0, 5)
+  const [leads, setLeads] = useState<LeadRead[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    api.get<{ ok: boolean; data: LeadRead[] }>('/owner/leads', token)
+      .then(r => setLeads(r.data ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [token])
+
+  const newCount = leads.filter(l => l.status === 'new').length
+  const followUpCount = leads.filter(l => l.status === 'follow_up').length
+  const bookedCount = leads.filter(l => l.status === 'booked').length
+  const recent = leads.slice(0, 5)
+
+  const kpis = [
+    { icon: 'users', label: 'New Leads', value: String(newCount), trend: 'this period', trendDir: 'up' as const, accent: '#2563EB' },
+    { icon: 'clock', label: 'Follow-ups Due', value: String(followUpCount), trend: 'pending', trendDir: 'down' as const, accent: '#D97706' },
+    { icon: 'calendar', label: 'Booked', value: String(bookedCount), trend: 'this period', trendDir: 'up' as const, accent: '#059669' },
+    { icon: 'target', label: 'Total Leads', value: String(leads.length), trend: 'all time', trendDir: 'up' as const, accent: '#0891B2' },
+  ]
 
   const needsAction = [
-    { n: 5, label: 'New leads waiting', icon: 'users', cta: 'Review', go: () => router.push('/dashboard/leads') },
-    { n: 3, label: 'Follow-ups due today', icon: 'clock', cta: 'Send', go: () => router.push('/dashboard/follow-ups') },
-    { n: 2, label: 'AI replies ready to approve', icon: 'sparkles', cta: 'Approve', go: () => router.push('/dashboard/leads') },
+    { n: newCount, label: 'New leads waiting', icon: 'users', cta: 'Review', go: () => router.push('/dashboard/leads') },
+    { n: followUpCount, label: 'Follow-ups due', icon: 'clock', cta: 'Send', go: () => router.push('/dashboard/follow-ups') },
+    { n: 0, label: 'AI replies ready to approve', icon: 'sparkles', cta: 'Approve', go: () => router.push('/dashboard/leads') },
   ]
 
   return (
     <div className="page-pad fade-up">
-      {/* Header */}
       <div className="between stack-sm" style={{ gap: 16, marginBottom: 24, alignItems: 'flex-start' }}>
         <div>
-          <h1 className="page-title">Welcome back, Alex 👋</h1>
+          <h1 className="page-title">Welcome back</h1>
           <p className="page-subtitle">What needs your attention today?</p>
         </div>
-        <button className="btn btn-secondary" style={{ gap: 10 }}>
-          <Icon name="calendar" size={17} style={{ color: 'var(--text-muted)' }} />
-          May 12 – May 18, 2025
-          <Icon name="chevDown" size={15} style={{ color: 'var(--text-muted)' }} />
-        </button>
       </div>
 
       {/* Needs Action */}
@@ -50,7 +91,9 @@ export default function OwnerDashboardPage() {
             <div className="na-pulse"><Icon name="zap" size={17} /></div>
             <span className="section-title" style={{ fontSize: 16, color: '#fff' }}>Needs Action</span>
           </div>
-          <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,.7)' }}>Today · May 18</span>
+          <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,.7)' }}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </span>
         </div>
         <div className="na-grid">
           {needsAction.map((a, i) => (
@@ -58,7 +101,9 @@ export default function OwnerDashboardPage() {
               <div className="na-ic"><Icon name={a.icon} size={18} /></div>
               <div className="grow" style={{ minWidth: 0, textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                  <span style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{a.n}</span>
+                  <span style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>
+                    {loading ? '—' : a.n}
+                  </span>
                   <span style={{ fontSize: 13, color: 'rgba(255,255,255,.78)' }}>{a.label}</span>
                 </div>
               </div>
@@ -70,20 +115,20 @@ export default function OwnerDashboardPage() {
 
       {/* KPI Grid */}
       <div className="kpi-grid" style={{ marginBottom: 22 }}>
-        {KPIS.map((k, i) => <StatCard key={i} {...k} compact />)}
+        {kpis.map((k, i) => <StatCard key={i} {...k} compact />)}
       </div>
 
       {isMobile ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <FormLinkCard router={router} />
-          <RecentLeadsCard recent={recent} router={router} isMobile={isMobile} />
+          <RecentLeadsCard recent={recent} loading={loading} router={router} isMobile={isMobile} />
           <AIInsightsCard />
           <ChartCard />
         </div>
       ) : (
         <div className="ov-grid">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-            <RecentLeadsCard recent={recent} router={router} isMobile={isMobile} />
+            <RecentLeadsCard recent={recent} loading={loading} router={router} isMobile={isMobile} />
             <ChartCard />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
@@ -129,9 +174,6 @@ function AIInsightsCard() {
           </div>
         ))}
       </div>
-      <button className="btn btn-ghost btn-xs" style={{ marginTop: 10, paddingLeft: 0 }}>
-        View details <Icon name="arrowRight" size={14} />
-      </button>
     </Card>
   )
 }
@@ -147,7 +189,14 @@ function ChartCard() {
   )
 }
 
-function RecentLeadsCard({ recent, router, isMobile }: { recent: typeof LEADS; router: ReturnType<typeof useRouter>; isMobile: boolean }) {
+function RecentLeadsCard({
+  recent, loading, router, isMobile
+}: {
+  recent: LeadRead[]
+  loading: boolean
+  router: ReturnType<typeof useRouter>
+  isMobile: boolean
+}) {
   return (
     <Card pad={false}>
       <div className="between" style={{ padding: '18px 22px 14px' }}>
@@ -156,17 +205,28 @@ function RecentLeadsCard({ recent, router, isMobile }: { recent: typeof LEADS; r
           View all <Icon name="arrowRight" size={15} />
         </button>
       </div>
-      {isMobile ? (
+      {loading ? (
+        <div style={{ padding: '24px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="spinner" />
+          <span className="muted" style={{ fontSize: 14 }}>Loading leads…</span>
+        </div>
+      ) : recent.length === 0 ? (
+        <div style={{ padding: '24px 22px', textAlign: 'center' }}>
+          <p className="muted" style={{ fontSize: 14, margin: 0 }}>No leads yet. Share your form link to get started.</p>
+        </div>
+      ) : isMobile ? (
         <div className="mcard-list" style={{ padding: '0 14px 14px' }}>
           {recent.map(l => (
             <button key={l.id} className="mcard" onClick={() => router.push('/dashboard/leads')}>
-              <Avatar name={l.name} initials={l.initials} size={38} />
+              <Avatar name={l.customer_name} initials={initials(l.customer_name)} size={38} />
               <div className="grow" style={{ minWidth: 0, textAlign: 'left' }}>
                 <div className="between">
-                  <span style={{ fontWeight: 600, fontSize: 14 }} className="trunc">{l.name}</span>
-                  <Badge dot={false}>{l.status}</Badge>
+                  <span style={{ fontWeight: 600, fontSize: 14 }} className="trunc">{l.customer_name}</span>
+                  <Badge dot={false}>{STATUS_DISPLAY[l.status] ?? l.status}</Badge>
                 </div>
-                <div className="muted" style={{ fontSize: 12.5, marginTop: 3 }}>{l.service} · {l.time}</div>
+                <div className="muted" style={{ fontSize: 12.5, marginTop: 3 }}>
+                  {l.service_needed ?? '—'} · {timeAgo(l.created_at)}
+                </div>
               </div>
               <Icon name="chevRight" size={17} style={{ color: 'var(--text-disabled)', flexShrink: 0, alignSelf: 'center' }} />
             </button>
@@ -175,15 +235,29 @@ function RecentLeadsCard({ recent, router, isMobile }: { recent: typeof LEADS; r
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="table">
-            <thead><tr>{['Customer', 'Service', 'Status', 'Received', ''].map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+            <thead>
+              <tr>{['Customer', 'Service', 'Status', 'Received', ''].map((h, i) => <th key={i}>{h}</th>)}</tr>
+            </thead>
             <tbody>
               {recent.map(l => (
                 <tr key={l.id} style={{ cursor: 'pointer' }} onClick={() => router.push('/dashboard/leads')}>
-                  <td><div style={{ display: 'flex', alignItems: 'center', gap: 11 }}><Avatar name={l.name} initials={l.initials} size={34} /><span className="strong">{l.name}</span></div></td>
-                  <td>{l.service}</td>
-                  <td><Badge>{l.status}</Badge></td>
-                  <td className="tabnum">{l.received} <span className="muted">{l.time}</span></td>
-                  <td><button className="icon-btn" style={{ width: 32, height: 32 }} onClick={e => { e.stopPropagation(); router.push('/dashboard/leads') }}><Icon name="chevRight" size={16} /></button></td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                      <Avatar name={l.customer_name} initials={initials(l.customer_name)} size={34} />
+                      <span className="strong">{l.customer_name}</span>
+                    </div>
+                  </td>
+                  <td>{l.service_needed ?? '—'}</td>
+                  <td><Badge>{STATUS_DISPLAY[l.status] ?? l.status}</Badge></td>
+                  <td className="tabnum">
+                    {new Date(l.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {' '}<span className="muted">{timeAgo(l.created_at)}</span>
+                  </td>
+                  <td>
+                    <button className="icon-btn" style={{ width: 32, height: 32 }} onClick={e => { e.stopPropagation(); router.push('/dashboard/leads') }}>
+                      <Icon name="chevRight" size={16} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
