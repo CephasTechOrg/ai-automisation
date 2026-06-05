@@ -18,10 +18,20 @@ class BusinessService:
     async def create_business(self,payload,actor_user_id:UUID):
         slug=await self.unique_slug(payload.name)
         b=Business(name=payload.name,slug=slug,industry=payload.industry,phone=payload.phone,contact_email=str(payload.contact_email) if payload.contact_email else None,address=payload.address,brand_color=payload.brand_color,created_by=actor_user_id)
-        self.db.add(b); await self.db.flush(); f=Form(business_id=b.id,slug=slug); self.db.add(f)
+        self.db.add(b); await self.db.flush()
+        f=Form(business_id=b.id,slug=slug); self.db.add(f)
         self.db.add(AuditLog(actor_user_id=actor_user_id,business_id=b.id,action='business.created',entity_type='business',entity_id=str(b.id),details={'slug':slug,'owner_email':str(payload.owner.email)}))
-        try: create_client(settings.SUPABASE_URL,settings.SUPABASE_SERVICE_ROLE_KEY).auth.admin.invite_user_by_email(str(payload.owner.email))
-        except Exception as exc: self.db.add(AuditLog(actor_user_id=actor_user_id,business_id=b.id,action='owner.invite.failed',details={'error':str(exc)}))
+        try:
+            res=create_client(settings.SUPABASE_URL,settings.SUPABASE_SERVICE_ROLE_KEY).auth.admin.invite_user_by_email(str(payload.owner.email))
+            if res.user:
+                owner_uid=UUID(str(res.user.id))
+                if not await self.db.get(Profile,owner_uid):
+                    self.db.add(Profile(id=owner_uid,email=str(payload.owner.email),full_name=payload.owner.full_name,role=ProfileRole.BUSINESS_OWNER))
+                await self.db.flush()
+                self.db.add(BusinessMember(business_id=b.id,user_id=owner_uid,role=MemberRole.OWNER,is_active=True))
+                self.db.add(AuditLog(actor_user_id=actor_user_id,business_id=b.id,action='owner.invited',entity_type='profile',entity_id=str(owner_uid),details={'email':str(payload.owner.email)}))
+        except Exception as exc:
+            self.db.add(AuditLog(actor_user_id=actor_user_id,business_id=b.id,action='owner.invite.failed',details={'error':str(exc)}))
         await self.db.flush(); return b,f
 class EmailService:
     def __init__(self,db): self.db=db; resend.api_key=settings.RESEND_API_KEY if settings.RESEND_API_KEY else None

@@ -48,6 +48,7 @@ export default function OwnerDashboardPage() {
   const isMobile = useIsMobile(900)
   const [leads, setLeads] = useState<LeadRead[]>([])
   const [loading, setLoading] = useState(true)
+  const [formSlug, setFormSlug] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token) return
@@ -55,6 +56,9 @@ export default function OwnerDashboardPage() {
       .then(r => setLeads(r.data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
+    api.get<{ ok: boolean; data: { slug: string } }>('/owner/form', token)
+      .then(r => setFormSlug(r.data?.slug ?? null))
+      .catch(() => {})
   }, [token])
 
   const newCount = leads.filter(l => l.status === 'new').length
@@ -120,7 +124,7 @@ export default function OwnerDashboardPage() {
 
       {isMobile ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <FormLinkCard router={router} />
+          <FormLinkCard router={router} formSlug={formSlug} />
           <RecentLeadsCard recent={recent} loading={loading} router={router} isMobile={isMobile} />
           <AIInsightsCard />
           <ChartCard />
@@ -132,7 +136,7 @@ export default function OwnerDashboardPage() {
             <ChartCard />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-            <FormLinkCard router={router} />
+            <FormLinkCard router={router} formSlug={formSlug} />
             <AIInsightsCard />
           </div>
         </div>
@@ -141,12 +145,15 @@ export default function OwnerDashboardPage() {
   )
 }
 
-function FormLinkCard({ router }: { router: ReturnType<typeof useRouter> }) {
+function FormLinkCard({ router, formSlug }: { router: ReturnType<typeof useRouter>; formSlug: string | null }) {
+  const formUrl = formSlug
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/forms/${formSlug}`
+    : FORM_URL
   return (
     <Card>
       <div className="section-title" style={{ fontSize: 16 }}>Your Public Form Link</div>
       <p className="helper" style={{ margin: '5px 0 16px' }}>Share this link to start capturing leads.</p>
-      <CopyLinkBox url={FORM_URL} />
+      <CopyLinkBox url={formUrl} />
       <button className="btn btn-ghost btn-xs" style={{ marginTop: 12, paddingLeft: 0 }} onClick={() => router.push('/dashboard/form-link')}>
         Preview Form <Icon name="externalLink" size={14} />
       </button>
