@@ -1,0 +1,11 @@
+from enum import StrEnum
+class ProfileRole(StrEnum): SUPER_ADMIN='super_admin'; BUSINESS_OWNER='business_owner'; STAFF='staff'
+class BusinessStatus(StrEnum): ACTIVE='active'; PENDING='pending'; PAUSED='paused'; ARCHIVED='archived'
+class MemberRole(StrEnum): OWNER='owner'; STAFF='staff'
+class LeadStatus(StrEnum): NEW='new'; CONTACTED='contacted'; BOOKED='booked'; FOLLOW_UP='follow_up'; LOST='lost'; ARCHIVED='archived'
+class MessageDirection(StrEnum): INBOUND='inbound'; OUTBOUND='outbound'; INTERNAL='internal'
+class MessageChannel(StrEnum): FORM='form'; EMAIL='email'; SYSTEM='system'
+class MessageType(StrEnum): CUSTOMER_MESSAGE='customer_message'; AUTO_REPLY='auto_reply'; AI_DRAFT='ai_draft'; OWNER_REPLY='owner_reply'; FOLLOW_UP='follow_up'
+class EmailStatus(StrEnum): QUEUED='queued'; SENT='sent'; FAILED='failed'
+class FollowUpStatus(StrEnum): SCHEDULED='scheduled'; SENT='sent'; CANCELED='canceled'; FAILED='failed'
+class AIOutputType(StrEnum): LEAD_SUMMARY='lead_summary'; SUGGESTED_REPLY='suggested_reply'; DASHBOARD_INSIGHT='dashboard_insight'

@@ -1,0 +1,8 @@
+from pydantic import BaseModel, EmailStr, Field
+from uuid import UUID
+from datetime import datetime
+class OwnerInviteCreate(BaseModel): full_name:str=Field(min_length=2,max_length=160); email:EmailStr; phone:str|None=None
+class BusinessCreate(BaseModel): name:str=Field(min_length=2,max_length=180); industry:str|None=None; phone:str|None=None; contact_email:EmailStr|None=None; address:str|None=None; brand_color:str='#2563EB'; owner:OwnerInviteCreate
+class BusinessRead(BaseModel):
+    id:UUID; name:str; slug:str; industry:str|None; contact_email:str|None; brand_color:str; status:str; created_at:datetime
+    model_config={'from_attributes':True}
