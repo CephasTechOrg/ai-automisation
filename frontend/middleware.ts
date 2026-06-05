@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Unauthenticated → redirect to login (except public routes)
-  const isPublic = pathname.startsWith('/forms') || pathname.startsWith('/login') || pathname === '/'
+  const isPublic = pathname.startsWith('/forms') || pathname.startsWith('/login') || pathname.startsWith('/auth') || pathname === '/'
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }

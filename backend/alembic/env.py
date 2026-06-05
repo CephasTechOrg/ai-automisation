@@ -7,7 +7,7 @@ from alembic import context
 from app.core.config import settings
 from app.core.database import Base
 from app import models  # noqa
-config=context.config; config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)
+config=context.config; config.set_main_option('sqlalchemy.url', settings.DATABASE_URL.replace('%', '%%'))
 if config.config_file_name: fileConfig(config.config_file_name)
 target_metadata=Base.metadata
 def run_migrations_offline():

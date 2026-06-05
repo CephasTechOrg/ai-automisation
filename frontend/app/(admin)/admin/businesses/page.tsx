@@ -7,6 +7,7 @@ import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
 import { INDUSTRIES } from '@/lib/data/mock'
 
+
 interface BusinessRead {
   id: string
   name: string
@@ -31,11 +32,22 @@ function timeAgo(isoStr: string) {
   return `${m}mo ago`
 }
 
-function BizMenu(router: ReturnType<typeof useRouter>) {
+function BizMenu(router: ReturnType<typeof useRouter>, businessId: string, token: string | null) {
   return [
     { icon: 'edit', label: 'Edit Business', onClick: () => router.push('/admin/businesses/new') },
     { icon: 'copy', label: 'Copy Form Link', onClick: () => toast('Form link copied') },
-    { icon: 'mail', label: 'Resend Owner Invite', onClick: () => toast('Invite resent') },
+    {
+      icon: 'mail', label: 'Resend Owner Invite', onClick: async () => {
+        if (!token) { toast('Not authenticated'); return }
+        try {
+          const res = await api.post<{ ok: boolean; data: { sent: boolean; email?: string; error?: string } }>(
+            `/admin/businesses/${businessId}/resend-invite`, {}, token
+          )
+          if (res.data?.sent) toast(`Invite resent to ${res.data.email}`)
+          else toast(res.data?.error ?? 'Failed to resend invite')
+        } catch { toast('Failed to resend invite') }
+      }
+    },
     { divider: true },
     { icon: 'pause', label: 'Pause Business', onClick: () => toast('Business paused') },
     { icon: 'trash', label: 'Archive Business', danger: true },
@@ -162,7 +174,7 @@ export default function AdminBusinessesPage() {
                         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => toast('Form link copied')}>
                           <Icon name="link" size={15} /> Form Link
                         </button>
-                        <Menu trigger={<button className="btn btn-secondary btn-sm btn-icon"><Icon name="more" size={18} /></button>} items={BizMenu(router)} />
+                        <Menu trigger={<button className="btn btn-secondary btn-sm btn-icon"><Icon name="more" size={18} /></button>} items={BizMenu(router, b.id, token)} />
                       </div>
                     </div>
                   ))}
@@ -194,7 +206,7 @@ export default function AdminBusinessesPage() {
                         <td>
                           <Menu
                             trigger={<button className="icon-btn" style={{ width: 32, height: 32 }}><Icon name="more" size={18} /></button>}
-                            items={BizMenu(router)}
+                            items={BizMenu(router, b.id, token)}
                           />
                         </td>
                       </tr>

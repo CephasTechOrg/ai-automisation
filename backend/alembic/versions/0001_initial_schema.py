@@ -26,7 +26,9 @@ CREATE TABLE ai_outputs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), business
 CREATE TABLE audit_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), actor_user_id uuid REFERENCES profiles(id) ON DELETE SET NULL, business_id uuid REFERENCES businesses(id) ON DELETE SET NULL, action varchar(120) NOT NULL, entity_type varchar(120), entity_id varchar(120), details jsonb, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
 CREATE INDEX ix_businesses_slug ON businesses(slug); CREATE INDEX ix_leads_business_status_created ON leads(business_id,status,created_at); CREATE INDEX ix_messages_lead_created ON messages(lead_id,created_at); CREATE INDEX ix_followups_due ON follow_ups(status,scheduled_at);
 '''
-def upgrade(): op.execute(SCHEMA_SQL)
+def upgrade():
+    for stmt in [s.strip() for s in SCHEMA_SQL.split(';') if s.strip()]:
+        op.execute(stmt)
 def downgrade():
     op.execute('DROP TABLE IF EXISTS audit_logs, ai_outputs, email_events, follow_ups, messages, leads, forms, business_members, businesses, profiles CASCADE')
     for t in ['aioutputtype','followupstatus','emailstatus','messagetype','messagechannel','messagedirection','leadstatus','memberrole','businessstatus','profilerole']: op.execute(f'DROP TYPE IF EXISTS {t} CASCADE')

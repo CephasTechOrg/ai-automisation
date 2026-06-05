@@ -22,7 +22,7 @@ class BusinessService:
         f=Form(business_id=b.id,slug=slug); self.db.add(f)
         self.db.add(AuditLog(actor_user_id=actor_user_id,business_id=b.id,action='business.created',entity_type='business',entity_id=str(b.id),details={'slug':slug,'owner_email':str(payload.owner.email)}))
         try:
-            res=create_client(settings.SUPABASE_URL,settings.SUPABASE_SERVICE_ROLE_KEY).auth.admin.invite_user_by_email(str(payload.owner.email))
+            res=create_client(settings.SUPABASE_URL,settings.SUPABASE_SERVICE_ROLE_KEY).auth.admin.invite_user_by_email(str(payload.owner.email),{'redirect_to':f'{settings.FRONTEND_URL}/auth/callback?type=invite'})
             if res.user:
                 owner_uid=UUID(str(res.user.id))
                 if not await self.db.get(Profile,owner_uid):
