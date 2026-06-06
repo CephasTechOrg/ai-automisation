@@ -18,7 +18,7 @@ async def get_form(slug:str,db:AsyncSession=Depends(get_db)):
     b=await db.get(Business,form.business_id)
     return APIResponse(data=PublicFormRead(form_id=form.id,business_id=b.id,business_name=b.name,business_slug=b.slug,logo_url=b.logo_url,brand_color=b.brand_color,title=form.title,description=form.description,success_message=form.success_message))
 @router.post('/forms/{slug}/submit',response_model=APIResponse[dict])
-@limiter.limit(lambda:f'{settings.PUBLIC_FORM_RATE_LIMIT_PER_MINUTE}/minute')
+@limiter.limit(f'{settings.PUBLIC_FORM_RATE_LIMIT_PER_MINUTE}/minute')
 async def submit(request:Request,slug:str,payload:PublicLeadSubmit,db:AsyncSession=Depends(get_db)):
     result=await LeadWorkflowService(db).submit(slug,payload)
     if not result: raise NotFoundError('Form not found')

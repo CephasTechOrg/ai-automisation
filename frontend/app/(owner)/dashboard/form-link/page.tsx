@@ -1,16 +1,39 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Icon, Card, CopyLinkBox, toast } from '@/components/ui'
-import { FORM_URL } from '@/lib/data/mock'
+import { api } from '@/lib/api/client'
+import { useApiToken } from '@/lib/hooks/useApiToken'
 
 const SHARE_CHANNELS = [
-  { icon: 'globe', t: 'Your website', d: 'Add a "Get a Quote" button.' },
-  { icon: 'users', t: 'Social media', d: 'Post in bio and stories.' },
-  { icon: 'mail', t: 'Email signature', d: 'Link in every email you send.' },
-  { icon: 'grid', t: 'QR code', d: 'Print on flyers & vehicles.' },
+  { icon: 'globe', t: 'Your website', d: 'Add a "Get a Quote" button linking to this URL.' },
+  { icon: 'users', t: 'Social media', d: 'Post the link in your bio and stories.' },
+  { icon: 'mail', t: 'Email signature', d: 'Include the link in every email you send.' },
+  { icon: 'grid', t: 'QR code', d: 'Print the QR code on flyers, vehicles, or cards.' },
 ]
 
 export default function FormLinkPage() {
+  const router = useRouter()
+  const token = useApiToken()
+  const [formUrl, setFormUrl] = useState<string | null>(null)
+  const [slug, setSlug] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    api.get<{ ok: boolean; data: { slug: string } }>('/owner/form', token)
+      .then(r => {
+        const s = r.data?.slug
+        if (s) {
+          setSlug(s)
+          setFormUrl(`${window.location.origin}/forms/${s}`)
+        }
+      })
+      .catch(() => toast('Could not load form link'))
+      .finally(() => setLoading(false))
+  }, [token])
+
   return (
     <div className="page-pad fade-up">
       <div className="between stack-sm" style={{ gap: 16, marginBottom: 24, alignItems: 'flex-start' }}>
@@ -20,23 +43,33 @@ export default function FormLinkPage() {
         </div>
       </div>
 
-      <div className="fl-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 360px', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 360px', gap: 24, alignItems: 'start' }} className="fl-grid">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           <Card>
             <div className="section-title" style={{ fontSize: 16 }}>Your Public Form Link</div>
             <p className="helper" style={{ margin: '5px 0 16px' }}>Anyone with this link can submit a request to your business.</p>
-            <CopyLinkBox url={FORM_URL} />
-            <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-              <button className="btn btn-secondary btn-sm">
-                <Icon name="externalLink" size={16} /> Preview Form
-              </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => toast('QR code downloaded')}>
-                <Icon name="grid" size={16} /> Download QR Code
-              </button>
-              <button className="btn btn-secondary btn-sm">
-                <Icon name="edit" size={16} /> Customize Form
-              </button>
-            </div>
+            {loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0' }}>
+                <div className="spinner" /><span className="muted" style={{ fontSize: 14 }}>Loading…</span>
+              </div>
+            ) : formUrl ? (
+              <>
+                <CopyLinkBox url={formUrl} />
+                <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => slug && router.push(`/forms/${slug}`)}
+                  >
+                    <Icon name="externalLink" size={16} /> Preview Form
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => toast('QR code download coming soon')}>
+                    <Icon name="grid" size={16} /> Download QR Code
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="muted" style={{ fontSize: 14 }}>No active form found. Contact your administrator.</p>
+            )}
           </Card>
 
           <Card>
@@ -61,9 +94,9 @@ export default function FormLinkPage() {
           <div className="section-title" style={{ fontSize: 16 }}>QR Code</div>
           <p className="helper" style={{ margin: '5px 0 16px' }}>Scan to open your form.</p>
           <div style={{ display: 'flex', justifyContent: 'center', padding: 18, background: 'var(--muted-bg-2)', borderRadius: 14, border: '1px solid var(--divider)' }}>
-            <QRCode />
+            <QRPlaceholder />
           </div>
-          <button className="btn btn-secondary btn-block btn-sm" style={{ marginTop: 14 }} onClick={() => toast('QR code downloaded')}>
+          <button className="btn btn-secondary btn-block btn-sm" style={{ marginTop: 14 }} onClick={() => toast('QR code download coming soon')}>
             <Icon name="upload" size={16} /> Download PNG
           </button>
         </Card>
@@ -72,7 +105,7 @@ export default function FormLinkPage() {
   )
 }
 
-function QRCode() {
+function QRPlaceholder() {
   const cells: React.ReactNode[] = []
   const grid = 21
   for (let y = 0; y < grid; y++) {

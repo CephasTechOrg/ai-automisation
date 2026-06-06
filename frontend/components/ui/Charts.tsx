@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 
 interface DataPoint { label: string; v: number }
 
@@ -14,6 +14,7 @@ interface AreaChartProps {
 export function AreaChart({ data, height = 220, color = 'var(--primary)', maxOverride }: AreaChartProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(640)
+  const uid = useId()
 
   useEffect(() => {
     if (!ref.current) return
@@ -32,7 +33,7 @@ export function AreaChart({ data, height = 220, color = 'var(--primary)', maxOve
   const line = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0] + ' ' + p[1]).join(' ')
   const area = line + ` L${pts[pts.length - 1][0]} ${padT + innerH} L${pts[0][0]} ${padT + innerH} Z`
   const ticks = [0, max / 4, max / 2, (max * 3) / 4, max]
-  const gid = 'ag-' + Math.round(Math.random() * 1e6)
+  const gid = 'ag' + uid.replace(/:/g, '')
 
   return (
     <div ref={ref} style={{ width: '100%' }}>

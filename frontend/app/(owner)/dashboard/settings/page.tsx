@@ -1,28 +1,59 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Icon, Card, Badge, Field, Input, Textarea, Toggle, Menu, CopyLinkBox, toast } from '@/components/ui'
-import { FORM_URL } from '@/lib/data/mock'
+import { api } from '@/lib/api/client'
+import { useApiToken } from '@/lib/hooks/useApiToken'
 
 interface BizState {
   name: string; tagline: string; email: string; color: string; followup: boolean
 }
 
 export default function SettingsPage() {
+  const token = useApiToken()
+  const [formUrl, setFormUrl] = useState<string | null>(null)
+  const [formSlug, setFormSlug] = useState<string | null>(null)
   const [biz, setBiz] = useState<BizState>({
-    name: 'Acme Home Services',
-    tagline: 'Trusted experts for a cleaner, safer home.',
-    email: 'hello@acmehomeservices.com',
-    color: '#2563EB',
-    followup: true,
+    name: '', tagline: '', email: '', color: '#2563EB', followup: true,
   })
-  const [subject, setSubject] = useState('Thanks for reaching out to Acme Home Services!')
+  const [subject, setSubject] = useState('Thanks for reaching out!')
   const [msg, setMsg] = useState(
-    "Hi {{first_name}},\n\nThanks for contacting Acme Home Services. We've received your request and one of our team members will be in touch within 24 hours.\n\nBest regards,\nThe Acme Home Services Team"
+    "Hi {{first_name}},\n\nThanks for contacting us. We've received your request and one of our team members will be in touch within 24 hours.\n\nBest regards,\nThe Team"
   )
   const [dirty, setDirty] = useState(false)
   const [active, setActive] = useState(true)
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
+
+  useEffect(() => {
+    if (!token) return
+    // Fetch the real form slug
+    api.get<{ ok: boolean; data: { slug: string } }>('/owner/form', token)
+      .then(r => {
+        const s = r.data?.slug
+        if (s) {
+          setFormSlug(s)
+          setFormUrl(`${window.location.origin}/forms/${s}`)
+        }
+      })
+      .catch(() => {})
+
+    // Fetch real business profile
+    api.get<{ ok: boolean; data: { name: string; contact_email: string; brand_color: string } }>('/owner/business', token)
+      .then(r => {
+        const d = r.data
+        if (d) {
+          setBiz(s => ({
+            ...s,
+            name: d.name ?? s.name,
+            email: d.contact_email ?? s.email,
+            color: d.brand_color ?? s.color,
+          }))
+          setSubject(`Thanks for reaching out to ${d.name ?? 'us'}!`)
+          setMsg(`Hi {{first_name}},\n\nThanks for contacting ${d.name ?? 'us'}. We've received your request and one of our team members will be in touch within 24 hours.\n\nBest regards,\nThe ${d.name ?? ''} Team`)
+        }
+      })
+      .catch(() => {})
+  }, [token])
 
   function set(k: keyof BizState, v: string | boolean) {
     setBiz(s => ({ ...s, [k]: v }))
@@ -61,8 +92,7 @@ export default function SettingsPage() {
                 <label className="label" style={{ marginBottom: 7, display: 'block' }}>Business Logo</label>
                 <div style={{ width: '100%', aspectRatio: '1.4', border: '1px solid var(--border)', borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, background: 'var(--muted-bg-2)' }}>
                   <Icon name="home2" size={30} style={{ color: 'var(--navy)' }} />
-                  <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--navy)' }}>ACME</div>
-                  <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', color: 'var(--text-muted)' }}>HOME SERVICES</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--navy)' }}>{biz.name.slice(0, 4).toUpperCase() || 'BIZ'}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                   <button className="btn btn-secondary btn-sm">Change Logo</button>
@@ -149,9 +179,23 @@ export default function SettingsPage() {
           <Card>
             <div className="section-title" style={{ fontSize: 16 }}>Public Form Link</div>
             <p className="helper" style={{ margin: '5px 0 16px' }}>Share this link to start capturing leads.</p>
-            <CopyLinkBox url={FORM_URL} />
+            {formUrl ? (
+              <CopyLinkBox url={formUrl} />
+            ) : (
+              <div style={{ height: 40, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="spinner" />
+                <span className="muted" style={{ fontSize: 13 }}>Loading form link…</span>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-              <button className="btn btn-ghost btn-xs" style={{ paddingLeft: 0 }}>Preview Form <Icon name="externalLink" size={14} /></button>
+              <button
+                className="btn btn-ghost btn-xs"
+                style={{ paddingLeft: 0 }}
+                onClick={() => formSlug && window.open(`/forms/${formSlug}`, '_blank')}
+                disabled={!formSlug}
+              >
+                Preview Form <Icon name="externalLink" size={14} />
+              </button>
               <button className="btn btn-ghost btn-xs" onClick={() => toast('Test email sent to ' + biz.email)}>
                 <Icon name="mail" size={14} /> Send test email
               </button>
@@ -173,7 +217,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <div style={{ maxWidth: device === 'mobile' ? 280 : '100%', margin: device === 'mobile' ? '0 auto' : '0', transition: 'max-width .25s ease' }}>
-              <FormPreview color={biz.color} />
+              <FormPreview color={biz.color} name={biz.name} />
             </div>
           </Card>
         </div>
@@ -195,14 +239,14 @@ export default function SettingsPage() {
   )
 }
 
-function FormPreview({ color }: { color: string }) {
+function FormPreview({ color, name }: { color: string; name: string }) {
   const fields = ['Full Name *', 'Email Address *', 'Phone Number *', 'Service Needed *']
   const placeholders = ['Enter your full name', 'Enter your email address', '(555) 123-4567', 'Select a service']
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 20, background: '#fff' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, marginBottom: 16 }}>
         <Icon name="home2" size={26} style={{ color }} />
-        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--navy)' }}>ACME</div>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--navy)' }}>{name.slice(0, 4).toUpperCase() || 'BIZ'}</div>
       </div>
       <div style={{ fontSize: 16, fontWeight: 700, textAlign: 'center', color: 'var(--navy)' }}>Request a Free Estimate</div>
       <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: '6px 0 16px', lineHeight: 1.5 }}>

@@ -35,10 +35,15 @@ function timeAgo(isoStr: string) {
   return `${m}mo ago`
 }
 
-function BizMenu(router: ReturnType<typeof useRouter>, businessId: string, token: string | null) {
+function BizMenu(router: ReturnType<typeof useRouter>, businessId: string, businessSlug: string, token: string | null) {
   return [
     { icon: 'edit', label: 'Edit Business', onClick: () => router.push(`/admin/businesses/${businessId}/edit`) },
-    { icon: 'copy', label: 'Copy Form Link', onClick: () => toast('Form link copied') },
+    {
+      icon: 'copy', label: 'Copy Form Link', onClick: () => {
+        const url = `${window.location.origin}/forms/${businessSlug}`
+        navigator.clipboard.writeText(url).then(() => toast('Form link copied!')).catch(() => toast('Copy failed'))
+      }
+    },
     {
       icon: 'mail', label: 'Resend Owner Invite', onClick: async () => {
         if (!token) { toast('Not authenticated'); return }
@@ -177,7 +182,7 @@ export default function AdminBusinessesPage() {
                         <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => toast('Form link copied')}>
                           <Icon name="link" size={15} /> Form Link
                         </button>
-                        <Menu trigger={<button className="btn btn-secondary btn-sm btn-icon"><Icon name="more" size={18} /></button>} items={BizMenu(router, b.id, token)} />
+                        <Menu trigger={<button className="btn btn-secondary btn-sm btn-icon"><Icon name="more" size={18} /></button>} items={BizMenu(router, b.id, b.slug, token)} />
                       </div>
                     </div>
                   ))}
@@ -209,7 +214,7 @@ export default function AdminBusinessesPage() {
                         <td>
                           <Menu
                             trigger={<button className="icon-btn" style={{ width: 32, height: 32 }}><Icon name="more" size={18} /></button>}
-                            items={BizMenu(router, b.id, token)}
+                            items={BizMenu(router, b.id, b.slug, token)}
                           />
                         </td>
                       </tr>
