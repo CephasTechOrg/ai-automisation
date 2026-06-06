@@ -32,6 +32,8 @@ class BusinessUpdate(BaseModel):
     address: str | None = None
     brand_color: str | None = None
     status: BusinessStatus | None = None
+    smart_auto_reply: bool | None = None
+    owner_approval_required: bool | None = None
 
 class BusinessRead(BaseModel):
     id: UUID
@@ -44,5 +46,7 @@ class BusinessRead(BaseModel):
     brand_color: str
     status: str
     logo_url: str | None
+    smart_auto_reply: bool
+    owner_approval_required: bool
     created_at: datetime
     model_config = {'from_attributes': True}
