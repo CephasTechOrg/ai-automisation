@@ -18,6 +18,7 @@ interface LeadRead {
   status: string
   source: string
   created_at: string
+  comm_status?: string | null   // ai_replied | owner_replied | acknowledged
 }
 
 interface AIData {
@@ -43,6 +44,7 @@ interface UILead extends LeadRead {
   initials: string
   timeAgo: string
   unread: boolean
+  commStatus: string | null
 }
 
 /* ── Helpers ────────────────────────────────────────────── */
@@ -77,7 +79,25 @@ function toUILead(l: LeadRead): UILead {
     initials: initials(l.customer_name).toUpperCase(),
     timeAgo: timeAgo(l.created_at),
     unread: l.status === 'new',
+    commStatus: l.comm_status ?? null,
   }
+}
+
+const COMM_CHIP: Record<string, { icon: string; label: string; color: string; bg: string }> = {
+  ai_replied:    { icon: 'sparkles', label: 'AI replied',   color: 'var(--green)',      bg: 'var(--green-bg, #F0FDF4)' },
+  owner_replied: { icon: 'check',    label: 'You replied',  color: 'var(--primary)',    bg: 'var(--primary-50, #EFF6FF)' },
+  acknowledged:  { icon: 'mail',     label: 'Acknowledged', color: 'var(--text-muted)', bg: 'var(--muted-bg)' },
+}
+
+function CommChip({ status }: { status: string | null }) {
+  const s = status ? COMM_CHIP[status] : null
+  if (!s) return null
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: s.color, background: s.bg, padding: '2px 7px', borderRadius: 20, flexShrink: 0, letterSpacing: '.01em' }}>
+      <Icon name={s.icon} size={10} />
+      {s.label}
+    </span>
+  )
 }
 
 const TL_ICON: Record<string, { icon: string; color: string }> = {
@@ -229,7 +249,10 @@ export default function LeadsPage() {
                     </div>
                     <div className="between" style={{ marginTop: 5, gap: 8 }}>
                       <span className="muted trunc" style={{ fontSize: 13 }}>{l.service_needed ?? '—'}</span>
-                      <Badge dot={false}>{l.displayStatus}</Badge>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
+                        <CommChip status={l.commStatus} />
+                        <Badge dot={false}>{l.displayStatus}</Badge>
+                      </div>
                     </div>
                   </div>
                 </button>
@@ -267,13 +290,13 @@ function LeadDetail({ lead, token, setStatus, onBack }: {
 }) {
   const [tab, setTab] = useState('overview')
   const [aiData, setAiData] = useState<AIData | null>(null)
+  const [autoSent, setAutoSent] = useState(false)
   const isMobile = useIsMobile(980)
 
-  // Fetch AI data whenever this lead is shown
   useEffect(() => {
     if (!token) return
-    api.get<{ ok: boolean; data: { lead: LeadRead; ai: AIData | null } }>(`/owner/leads/${lead.id}`, token)
-      .then(r => setAiData(r.data?.ai ?? null))
+    api.get<{ ok: boolean; data: { lead: LeadRead; ai: AIData | null; auto_sent: boolean } }>(`/owner/leads/${lead.id}`, token)
+      .then(r => { setAiData(r.data?.ai ?? null); setAutoSent(r.data?.auto_sent ?? false) })
       .catch(() => {})
   }, [token, lead.id])
 
@@ -282,7 +305,7 @@ function LeadDetail({ lead, token, setStatus, onBack }: {
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'messages', label: 'Messages' },
-    { id: 'ai', label: 'AI', dot: !!suggestedReply },
+    { id: 'ai', label: 'AI', dot: !!suggestedReply && !autoSent },
     { id: 'timeline', label: 'Timeline' },
   ]
 
@@ -334,9 +357,9 @@ function LeadDetail({ lead, token, setStatus, onBack }: {
       </div>
 
       <div className="ld-tabpane">
-        {tab === 'overview' && <OverviewTab lead={lead} aiData={aiData} onReview={() => setTab('ai')} />}
-        {tab === 'messages' && <MessagesTab lead={lead} token={token} suggestedReply={suggestedReply} onReview={() => setTab('ai')} />}
-        {tab === 'ai' && <AITab lead={lead} token={token} aiData={aiData} />}
+        {tab === 'overview' && <OverviewTab lead={lead} aiData={aiData} autoSent={autoSent} onReview={() => setTab('ai')} />}
+        {tab === 'messages' && <MessagesTab lead={lead} token={token} onReview={() => setTab('ai')} />}
+        {tab === 'ai' && <AITab lead={lead} token={token} aiData={aiData} autoSent={autoSent} />}
         {tab === 'timeline' && <TimelineTab lead={lead} />}
       </div>
 
@@ -362,7 +385,7 @@ function LeadDetail({ lead, token, setStatus, onBack }: {
 /* ─────────────────────────────────────────────────────────
    Overview tab
 ───────────────────────────────────────────────────────── */
-function OverviewTab({ lead, aiData, onReview }: { lead: UILead; aiData: AIData | null; onReview: () => void }) {
+function OverviewTab({ lead, aiData, autoSent, onReview }: { lead: UILead; aiData: AIData | null; autoSent: boolean; onReview: () => void }) {
   const receivedDate = new Date(lead.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const details: [string, string][] = [
     ['Email', lead.customer_email ?? '—'],
@@ -408,10 +431,16 @@ function OverviewTab({ lead, aiData, onReview }: { lead: UILead; aiData: AIData 
         <button className="ai-teaser" onClick={onReview}>
           <div className="ai-teaser-ic"><Icon name="sparkles" size={16} /></div>
           <div className="grow" style={{ textAlign: 'left' }}>
-            <div style={{ fontWeight: 600, fontSize: 13.5 }}>Suggested reply ready</div>
-            <div className="muted" style={{ fontSize: 12.5, marginTop: 1 }}>AI drafted a response for you to review</div>
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>
+              {autoSent ? 'AI replied to this customer' : 'Suggested reply ready'}
+            </div>
+            <div className="muted" style={{ fontSize: 12.5, marginTop: 1 }}>
+              {autoSent ? 'View the personalized reply in the AI tab' : 'AI drafted a response for you to review'}
+            </div>
           </div>
-          <span className="btn btn-secondary btn-xs" style={{ flexShrink: 0 }}>Review Reply</span>
+          <span className="btn btn-secondary btn-xs" style={{ flexShrink: 0 }}>
+            {autoSent ? 'View Reply' : 'Review Reply'}
+          </span>
         </button>
       )}
 
@@ -433,15 +462,67 @@ function OverviewTab({ lead, aiData, onReview }: { lead: UILead; aiData: AIData 
 /* ─────────────────────────────────────────────────────────
    Messages tab — real API
 ───────────────────────────────────────────────────────── */
-function MessagesTab({ lead, token, suggestedReply, onReview }: {
+function ThreadBanner({ color, icon, label, content, time }: { color: 'green' | 'amber' | 'gray'; icon: string; label: string; content: string; time: string }) {
+  const s = {
+    green: { bg: 'var(--green-bg, #F0FDF4)', border: 'var(--green-border, #BBF7D0)', header: 'var(--green, #16A34A)', body: '#166534' },
+    amber: { bg: '#FFFBEB', border: '#FDE68A', header: '#92400E', body: '#78350F' },
+    gray:  { bg: 'var(--muted-bg)', border: 'var(--border)', header: 'var(--text-muted)', body: 'var(--text-secondary)' },
+  }[color]
+  return (
+    <div style={{ padding: '4px 0' }}>
+      <div style={{ padding: '12px 14px', background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <Icon name={icon} size={13} style={{ color: s.header }} />
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: s.header, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</span>
+          <span style={{ fontSize: 11, color: 'var(--text-disabled)', marginLeft: 'auto' }}>{time}</span>
+        </div>
+        <div style={{ fontSize: 13.5, color: s.body, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{content}</div>
+      </div>
+    </div>
+  )
+}
+
+function CustomerBubble({ msg }: { msg: MsgItem }) {
+  const time = new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return (
+    <div className="ld-msg customer">
+      <div className="ld-msg-label">Customer</div>
+      <div className="ld-msg-bubble customer">{msg.content}</div>
+      <div className="ld-msg-time">{time}</div>
+    </div>
+  )
+}
+
+function OwnerBubble({ msg }: { msg: MsgItem }) {
+  const time = new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return (
+    <div className="ld-msg owner">
+      <div className="ld-msg-label">You</div>
+      <div className="ld-msg-bubble owner">{msg.content}</div>
+      <div className="ld-msg-time">{time}</div>
+    </div>
+  )
+}
+
+function MsgBubble({ msg }: { msg: MsgItem }) {
+  const time = new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  if (msg.type === 'customer_message') return <CustomerBubble msg={msg} />
+  if (msg.type === 'owner_reply')      return <OwnerBubble msg={msg} />
+  if (msg.type === 'auto_reply')       return <ThreadBanner color="green" icon="sparkles" label="AI replied to customer" content={msg.content} time={time} />
+  if (msg.type === 'follow_up')        return <ThreadBanner color="gray"  icon="send"     label="Follow-up sent"          content={msg.content} time={time} />
+  return null
+}
+
+function MessagesTab({ lead, token, onReview }: {
   lead: UILead
   token: string | null
-  suggestedReply: string | null
   onReview: () => void
 }) {
   const [messages, setMessages] = useState<MsgItem[]>([])
+  const [draftContent, setDraftContent] = useState<string | null>(null)
+  const [draftDismissed, setDraftDismissed] = useState(false)
   const [loadingMsgs, setLoadingMsgs] = useState(true)
-  const [draft, setDraft] = useState('')
+  const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -449,7 +530,14 @@ function MessagesTab({ lead, token, suggestedReply, onReview }: {
     if (!token) return
     setLoadingMsgs(true)
     api.get<{ ok: boolean; data: MsgItem[] }>(`/owner/leads/${lead.id}/messages`, token)
-      .then(r => setMessages(r.data ?? []))
+      .then(r => {
+        const all = r.data ?? []
+        const hasAutoReply = all.some(m => m.type === 'auto_reply')
+        const aiDraftMsg = all.find(m => m.type === 'ai_draft')
+        setMessages(all.filter(m => m.type !== 'ai_draft'))
+        setDraftContent((!hasAutoReply && aiDraftMsg) ? aiDraftMsg.content : null)
+        setDraftDismissed(false)
+      })
       .catch(() => {})
       .finally(() => setLoadingMsgs(false))
   }, [token, lead.id])
@@ -463,8 +551,8 @@ function MessagesTab({ lead, token, suggestedReply, onReview }: {
     setSending(true)
     const optimisticId = 'opt-' + Date.now()
     const optimistic: MsgItem = { id: optimisticId, type: 'owner_reply', direction: 'outbound', content: text, created_at: new Date().toISOString() }
-    setMessages(ms => [...ms.filter(m => m.type !== 'ai_draft'), optimistic])
-    setDraft('')
+    setMessages(ms => [...ms, optimistic])
+    setReply('')
     try {
       const res = await api.post<{ ok: boolean; data: MsgItem }>(`/owner/leads/${lead.id}/messages`, { content: text }, token)
       setMessages(ms => ms.map(m => m.id === optimisticId ? res.data : m))
@@ -477,8 +565,10 @@ function MessagesTab({ lead, token, suggestedReply, onReview }: {
     }
   }
 
+  const showDraft = draftContent && !draftDismissed
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div className="ld-thread" ref={scrollRef}>
         {loadingMsgs ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 0' }}>
@@ -489,79 +579,48 @@ function MessagesTab({ lead, token, suggestedReply, onReview }: {
         ) : messages.map((m, i) => <MsgBubble key={m.id ?? i} msg={m} />)}
       </div>
 
-      {suggestedReply && (
-        <div className="ai-teaser" style={{ cursor: 'pointer' }} onClick={onReview}>
-          <div className="ai-teaser-ic"><Icon name="sparkles" size={16} /></div>
-          <div className="grow" style={{ textAlign: 'left' }}>
-            <div style={{ fontWeight: 600, fontSize: 13.5 }}>AI reply suggestion available</div>
+      {/* AI draft card — only shown when AI didn't auto-send */}
+      {showDraft && (
+        <div style={{ padding: '12px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="sparkles" size={14} style={{ color: '#D97706' }} />
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '.04em' }}>AI Draft — not sent yet</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-ghost btn-xs" onClick={onReview} style={{ color: '#92400E' }}>Full analysis</button>
+              <button onClick={() => setDraftDismissed(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', padding: 2, display: 'flex' }}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
           </div>
-          <span className="btn btn-secondary btn-xs" style={{ flexShrink: 0 }}>Review</span>
+          <div style={{ fontSize: 13.5, color: '#78350F', lineHeight: 1.65, marginBottom: 10, whiteSpace: 'pre-wrap' }}>{draftContent}</div>
+          <button
+            className="btn btn-sm"
+            style={{ background: '#D97706', color: '#fff', border: 'none' }}
+            onClick={() => { setReply(draftContent!); setDraftDismissed(true) }}
+          >
+            <Icon name="edit" size={13} /> Load in composer
+          </button>
         </div>
       )}
 
       <div className="ld-composer">
         <textarea
           className="textarea"
-          placeholder="Write a reply…"
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft) } }}
+          placeholder="Write a reply… (Enter to send)"
+          value={reply}
+          onChange={e => setReply(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(reply) } }}
           style={{ minHeight: 90 }}
           disabled={sending}
         />
-        <div className="between" style={{ marginTop: 10 }}>
-          {suggestedReply && (
-            <button className="btn btn-ghost btn-sm" onClick={onReview}><Icon name="sparkles" size={15} /> Use AI draft</button>
-          )}
-          <div style={{ marginLeft: 'auto' }}>
-            <button className="btn btn-primary btn-sm" onClick={() => send(draft)} disabled={sending || !draft.trim()}>
-              {sending ? <><span className="spinner" /> Sending…</> : <><Icon name="send" size={15} /> Send Reply</>}
-            </button>
-          </div>
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="btn btn-primary btn-sm" onClick={() => send(reply)} disabled={sending || !reply.trim()}>
+            {sending ? <><span className="spinner" /> Sending…</> : <><Icon name="send" size={15} /> Send Reply</>}
+          </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-function MsgBubble({ msg }: { msg: MsgItem }) {
-  const time = new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-
-  if (msg.type === 'customer_message') {
-    return (
-      <div className="ld-msg customer">
-        <div className="ld-msg-label">Customer Message</div>
-        <div className="ld-msg-bubble customer">{msg.content}</div>
-        <div className="ld-msg-time">{time}</div>
-      </div>
-    )
-  }
-  if (msg.type === 'auto_reply') {
-    return (
-      <div className="ld-msg auto">
-        <div className="ld-msg-label">Auto Reply</div>
-        <div className="ld-msg-bubble auto">{msg.content}</div>
-        <div className="ld-msg-time">{time}</div>
-      </div>
-    )
-  }
-  if (msg.type === 'ai_draft') {
-    return (
-      <div className="ld-msg auto">
-        <div className="ld-msg-label" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <Icon name="sparkles" size={12} style={{ color: 'var(--primary)' }} /> AI Draft · pending approval
-        </div>
-        <div className="ld-msg-bubble auto" style={{ borderColor: 'var(--primary)', background: 'var(--primary-50)' }}>{msg.content}</div>
-        <div className="ld-msg-time">{time}</div>
-      </div>
-    )
-  }
-  // owner_reply or outbound
-  return (
-    <div className="ld-msg owner">
-      <div className="ld-msg-label">Your Reply</div>
-      <div className="ld-msg-bubble owner">{msg.content}</div>
-      <div className="ld-msg-time">{time}</div>
     </div>
   )
 }
@@ -569,7 +628,7 @@ function MsgBubble({ msg }: { msg: MsgItem }) {
 /* ─────────────────────────────────────────────────────────
    AI tab — real data
 ───────────────────────────────────────────────────────── */
-function AITab({ lead, token, aiData }: { lead: UILead; token: string | null; aiData: AIData | null }) {
+function AITab({ lead, token, aiData, autoSent }: { lead: UILead; token: string | null; aiData: AIData | null; autoSent: boolean }) {
   const [draft, setDraft] = useState(aiData?.suggested_reply ?? '')
   const [sending, setSending] = useState(false)
 
@@ -607,8 +666,13 @@ function AITab({ lead, token, aiData }: { lead: UILead; token: string | null; ai
   return (
     <div className="tabpane-stack">
       <div className="ai-states">
-        <span className="ai-state done"><Icon name="check" size={12} /> Auto-reply sent</span>
-        {aiData.suggested_reply && <span className="ai-state pending"><Icon name="sparkles" size={12} /> Draft awaiting approval</span>}
+        {autoSent
+          ? <span className="ai-state done"><Icon name="sparkles" size={12} /> AI replied to customer</span>
+          : <span className="ai-state pending" style={{ color: 'var(--text-muted)' }}><Icon name="mail" size={12} /> Acknowledgement sent</span>
+        }
+        {!autoSent && aiData.suggested_reply && (
+          <span className="ai-state pending"><Icon name="sparkles" size={12} /> Draft ready — awaiting your review</span>
+        )}
       </div>
 
       {aiData.summary && (
@@ -650,21 +714,24 @@ function AITab({ lead, token, aiData }: { lead: UILead; token: string | null; ai
 
       {aiData.suggested_reply && (
         <section>
-          <div className="sec-label">Suggested reply</div>
+          <div className="sec-label">{autoSent ? 'Reply sent to customer' : 'Suggested reply'}</div>
           <textarea
             className="textarea"
             value={draft}
-            onChange={e => setDraft(e.target.value)}
-            style={{ minHeight: 150, fontSize: 13.5, background: 'var(--muted-bg-2)' }}
+            onChange={e => !autoSent && setDraft(e.target.value)}
+            readOnly={autoSent}
+            style={{ minHeight: 150, fontSize: 13.5, background: autoSent ? 'var(--muted-bg)' : 'var(--muted-bg-2)', color: autoSent ? 'var(--text-secondary)' : 'inherit', cursor: autoSent ? 'default' : undefined }}
             disabled={sending}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button className="btn btn-primary" style={{ flex: 1 }} onClick={approveAndSend} disabled={sending || !draft.trim()}>
-              {sending ? <><span className="spinner" /> Sending…</> : <><Icon name="send" size={16} /> Approve &amp; Send</>}
-            </button>
+            {!autoSent && (
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={approveAndSend} disabled={sending || !draft.trim()}>
+                {sending ? <><span className="spinner" /> Sending…</> : <><Icon name="send" size={16} /> Approve &amp; Send</>}
+              </button>
+            )}
             <button
               className="btn btn-secondary btn-icon"
-              title="Copy"
+              title="Copy to clipboard"
               onClick={() => { navigator.clipboard.writeText(draft); toast('Copied') }}
             >
               <Icon name="copy" size={17} />
@@ -675,7 +742,9 @@ function AITab({ lead, token, aiData }: { lead: UILead; token: string | null; ai
 
       <div className="helper" style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
         <Icon name="shield" size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-        AI only auto-sends the acknowledgement email. Important replies are drafted for you to review and send.
+        {autoSent
+          ? 'AI sent a personalized reply to this customer automatically. The draft below is a copy for your reference.'
+          : 'A safe acknowledgement email was sent to the customer. The AI draft below is ready for you to edit and send.'}
       </div>
     </div>
   )
@@ -686,6 +755,11 @@ function AITab({ lead, token, aiData }: { lead: UILead; token: string | null; ai
 ───────────────────────────────────────────────────────── */
 function TimelineTab({ lead }: { lead: UILead }) {
   const received = new Date(lead.created_at)
+  const emailEventTitle = lead.commStatus === 'ai_replied'
+    ? 'AI replied to customer'
+    : lead.commStatus === 'owner_replied'
+    ? 'Owner replied to customer'
+    : 'Acknowledgement sent'
   const events = [
     {
       type: 'received',
@@ -695,7 +769,7 @@ function TimelineTab({ lead }: { lead: UILead }) {
     },
     {
       type: 'email',
-      title: 'Auto-reply sent',
+      title: emailEventTitle,
       date: received.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       time: received.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     },

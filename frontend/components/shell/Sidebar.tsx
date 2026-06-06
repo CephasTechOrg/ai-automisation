@@ -10,7 +10,7 @@ const OWNER_NAV: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: 'home', href: '/dashboard' },
   { id: 'leads', label: 'Leads', icon: 'users', href: '/dashboard/leads' },
   { id: 'followups', label: 'Follow-ups', icon: 'messageDots', href: '/dashboard/follow-ups' },
-  { id: 'formlink', label: 'Form Link', icon: 'link', href: '/dashboard/form-link' },
+  { id: 'form', label: 'My Form', icon: 'fileText', href: '/dashboard/form' },
   { id: 'messages', label: 'Messages', icon: 'mail', href: '/dashboard/messages', badge: 3 },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '/dashboard/settings' },
 ]

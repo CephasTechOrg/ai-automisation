@@ -1,7 +1,7 @@
 from uuid import UUID
 from datetime import date, timedelta, datetime, timezone
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -18,6 +18,14 @@ from app.services.email_templates import owner_reply_html, followup_html
 class FollowUpUpdate(BaseModel):
     status: str | None = None
     scheduled_at: datetime | None = None
+
+class OwnerFormUpdate(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=180)
+    description: str | None = Field(None, max_length=600)
+    success_message: str | None = Field(None, max_length=600)
+    services: list[str] | None = None
+    is_active: bool | None = None
+    slug: str | None = Field(None, min_length=2, max_length=220, pattern=r'^[a-z0-9][a-z0-9-]*[a-z0-9]$')
 router=APIRouter()
 async def get_membership(db,user_id):
     m=(await db.execute(select(BusinessMember).where(BusinessMember.user_id==user_id,BusinessMember.is_active.is_(True)))).scalar_one_or_none()
@@ -27,7 +35,16 @@ async def business_id(db,user_id):
     return (await get_membership(db,user_id)).business_id
 @router.get('/leads',response_model=APIResponse[list[LeadRead]])
 async def leads(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db),limit:int=Query(50,le=100),offset:int=Query(0,ge=0)):
-    bid=await business_id(db,user.id); rows=(await db.execute(select(Lead).where(Lead.business_id==bid).order_by(Lead.created_at.desc()).limit(limit).offset(offset))).scalars().all(); return APIResponse(data=[LeadRead.model_validate(x) for x in rows])
+    bid=await business_id(db,user.id)
+    rows=(await db.execute(select(Lead).where(Lead.business_id==bid).order_by(Lead.created_at.desc()).limit(limit).offset(offset))).scalars().all()
+    auto_ids=set(r[0] for r in (await db.execute(select(Message.lead_id).where(Message.business_id==bid,Message.message_type==MessageType.AUTO_REPLY).distinct())).all())
+    owner_ids=set(r[0] for r in (await db.execute(select(Message.lead_id).where(Message.business_id==bid,Message.message_type==MessageType.OWNER_REPLY).distinct())).all())
+    result=[]
+    for row in rows:
+        lr=LeadRead.model_validate(row)
+        cs='ai_replied' if row.id in auto_ids else ('owner_replied' if row.id in owner_ids else 'acknowledged')
+        result.append(lr.model_copy(update={'comm_status':cs}))
+    return APIResponse(data=result)
 @router.get('/leads/{lead_id}',response_model=APIResponse[dict])
 async def lead_detail(lead_id:UUID,user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
     bid=await business_id(db,user.id)
@@ -35,7 +52,8 @@ async def lead_detail(lead_id:UUID,user:AuthUser=Depends(require_owner_or_staff)
     if not lead: raise NotFoundError('Lead not found')
     if lead.business_id!=bid: raise ForbiddenError('Wrong business')
     ai=(await db.execute(select(AIOutput).where(AIOutput.lead_id==lead_id))).scalars().first()
-    return APIResponse(data={'lead':LeadRead.model_validate(lead).model_dump(mode='json'),'ai':ai.structured_output if ai else None})
+    auto_sent=(await db.execute(select(Message.id).where(Message.lead_id==lead_id,Message.message_type==MessageType.AUTO_REPLY).limit(1))).scalar_one_or_none() is not None
+    return APIResponse(data={'lead':LeadRead.model_validate(lead).model_dump(mode='json'),'ai':ai.structured_output if ai else None,'auto_sent':auto_sent})
 @router.post('/leads/{lead_id}/messages',response_model=APIResponse[dict])
 async def send_reply(lead_id:UUID,payload:OwnerReplyCreate,user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
     bid=await business_id(db,user.id)
@@ -134,9 +152,26 @@ async def update_followup(followup_id:UUID,payload:FollowUpUpdate,user:AuthUser=
     await db.commit()
     return APIResponse(data={'id':str(fu.id),'status':fu.status.value,'scheduled_at':fu.scheduled_at.isoformat(),'sent_at':fu.sent_at.isoformat() if fu.sent_at else None})
 
+def _form_dict(form) -> dict:
+    return {'form_id':str(form.id),'slug':form.slug,'title':form.title,'description':form.description,'success_message':form.success_message,'services':form.services,'is_active':form.is_active}
+
 @router.get('/form',response_model=APIResponse[dict])
 async def owner_form(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
     bid=await business_id(db,user.id)
-    form=(await db.execute(select(Form).where(Form.business_id==bid,Form.is_active.is_(True)))).scalars().first()
-    if not form: raise NotFoundError('No active form found for this business')
-    return APIResponse(data={'form_id':str(form.id),'slug':form.slug,'title':form.title,'is_active':form.is_active})
+    form=(await db.execute(select(Form).where(Form.business_id==bid))).scalars().first()
+    if not form: raise NotFoundError('No form found for this business')
+    return APIResponse(data=_form_dict(form))
+
+@router.patch('/form',response_model=APIResponse[dict])
+async def update_owner_form(payload:OwnerFormUpdate,user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
+    bid=await business_id(db,user.id)
+    form=(await db.execute(select(Form).where(Form.business_id==bid))).scalars().first()
+    if not form: raise NotFoundError('No form found for this business')
+    if payload.slug and payload.slug!=form.slug:
+        taken=(await db.execute(select(Form.id).where(Form.slug==payload.slug,Form.id!=form.id).limit(1))).scalar_one_or_none()
+        if taken: raise HTTPException(status_code=409,detail='That URL is already in use by another form. Choose a different one.')
+        form.slug=payload.slug
+    for k,v in payload.model_dump(exclude_unset=True,exclude={'slug'}).items():
+        setattr(form,k,v)
+    await db.commit(); await db.refresh(form)
+    return APIResponse(data=_form_dict(form))

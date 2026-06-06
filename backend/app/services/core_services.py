@@ -154,16 +154,7 @@ class LeadWorkflowService:
                 subject='Public form submission', content=payload.message,
             ))
 
-        # ── 4. Safe acknowledgement email (always ON) ───────────────────────
-        if lead.customer_email:
-            ack_html = acknowledgement_html(business.name, lead.customer_name, business.brand_color)
-            await self.email.send(
-                lead.customer_email,
-                f'We received your request — {business.name}',
-                ack_html, business.id, lead.id,
-            )
-
-        # ── 5. AI analysis ──────────────────────────────────────────────────
+        # ── 4. AI analysis (run before any email decision) ──────────────────
         ai = await self.ai.summarize(business.name, lead)
         suggested_reply = ai.get('suggested_reply', '')
 
@@ -175,7 +166,7 @@ class LeadWorkflowService:
             structured_output=ai,
         ))
 
-        # ── 6. Always save AI reply as a draft for owner review ─────────────
+        # ── 5. Always save AI reply as a draft for owner review ─────────────
         self.db.add(Message(
             business_id=business.id, lead_id=lead.id,
             direction=MessageDirection.INTERNAL, channel=MessageChannel.SYSTEM,
@@ -183,10 +174,11 @@ class LeadWorkflowService:
             subject='AI suggested reply', content=suggested_reply,
         ))
 
-        # ── 7. Safety gate — only auto-send if all conditions pass ──────────
+        # ── 6. Safety gate — personalized reply OR acknowledgement, never both
         auto_sent = False
         allowed, block_reason = _safety_gate(business, ai)
         if allowed and lead.customer_email and suggested_reply:
+            # Gate passed: send personalized AI reply (this IS the acknowledgement)
             reply_subject = f'Re: Your {lead.service_needed or "service"} request — {business.name}'
             reply_html = auto_reply_html(business.name, lead.customer_name, suggested_reply, business.brand_color)
             await self.email.send(lead.customer_email, reply_subject, reply_html, business.id, lead.id)
@@ -197,6 +189,14 @@ class LeadWorkflowService:
                 subject=reply_subject, content=suggested_reply,
             ))
             auto_sent = True
+        elif lead.customer_email:
+            # Gate failed: send safe generic acknowledgement instead
+            ack_html = acknowledgement_html(business.name, lead.customer_name, business.brand_color)
+            await self.email.send(
+                lead.customer_email,
+                f'We received your request — {business.name}',
+                ack_html, business.id, lead.id,
+            )
 
         # ── 8. Owner notification (always ON) ───────────────────────────────
         if business.contact_email:

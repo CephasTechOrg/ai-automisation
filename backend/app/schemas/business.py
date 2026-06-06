@@ -23,6 +23,8 @@ class OwnerBusinessUpdate(BaseModel):
     phone: str | None = None
     address: str | None = None
     brand_color: str | None = None
+    smart_auto_reply: bool | None = None
+    owner_approval_required: bool | None = None
 
 class BusinessUpdate(BaseModel):
     name: str | None = Field(None, min_length=2, max_length=180)
