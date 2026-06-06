@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Icon, Field, Input, Textarea, Select, Logo } from '@/components/ui'
 import { api } from '@/lib/api/client'
-import { SERVICES } from '@/lib/data/mock'
 
 interface PublicFormConfig {
   form_id: string
@@ -16,6 +15,7 @@ interface PublicFormConfig {
   title: string
   description: string | null
   success_message: string
+  services: string[] | null
 }
 
 interface FormState {
@@ -159,7 +159,7 @@ export default function PublicFormPage() {
                       <Input icon="phone" placeholder="(555) 123-4567" value={form.phone} error={!!errs.phone} onChange={e => set('phone', e.target.value)} />
                     </Field>
                     <Field label="Service Needed" required error={errs.service}>
-                      <Select options={SERVICES} value={form.service} placeholder="Select a service" onChange={v => set('service', v)} />
+                      <Select options={config?.services ?? []} value={form.service} placeholder="Select a service" onChange={v => set('service', v)} />
                     </Field>
                     <Field label="Preferred Date">
                       <Input icon="calendar" placeholder="Select a date" value={form.date} onChange={e => set('date', e.target.value)} />

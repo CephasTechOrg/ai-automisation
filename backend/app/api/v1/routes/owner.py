@@ -12,6 +12,8 @@ from app.models.enums import FollowUpStatus
 from app.schemas.common import APIResponse
 from app.schemas.lead import LeadRead, LeadStatusUpdate, OwnerReplyCreate
 from app.schemas.business import BusinessRead, OwnerBusinessUpdate
+from app.services.core_services import EmailService
+from app.services.email_templates import owner_reply_html, followup_html
 
 class FollowUpUpdate(BaseModel):
     status: str | None = None
@@ -41,7 +43,15 @@ async def send_reply(lead_id:UUID,payload:OwnerReplyCreate,user:AuthUser=Depends
     if not lead: raise NotFoundError('Lead not found')
     if lead.business_id!=bid: raise ForbiddenError('Wrong business')
     msg=Message(lead_id=lead_id,business_id=bid,direction=MessageDirection.OUTBOUND,channel=MessageChannel.EMAIL,message_type=MessageType.OWNER_REPLY,content=payload.content)
-    db.add(msg); await db.commit(); await db.refresh(msg)
+    db.add(msg)
+    await db.flush()
+    if lead.customer_email:
+        business=await db.get(Business,bid)
+        html=owner_reply_html(business.name,lead.customer_name,payload.content,business.brand_color)
+        subject=f"Re: Your {lead.service_needed or 'service'} request — {business.name}"
+        await EmailService(db).send(lead.customer_email,subject,html,business_id=bid,lead_id=lead_id)
+    await db.commit()
+    await db.refresh(msg)
     return APIResponse(data={'id':str(msg.id),'type':msg.message_type.value,'direction':msg.direction.value,'content':msg.content,'created_at':msg.created_at.isoformat()})
 @router.patch('/leads/{lead_id}/status',response_model=APIResponse[LeadRead])
 async def status(lead_id:UUID,payload:LeadStatusUpdate,user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
@@ -111,7 +121,15 @@ async def update_followup(followup_id:UUID,payload:FollowUpUpdate,user:AuthUser=
     if payload.status:
         if payload.status not in [s.value for s in FollowUpStatus]: raise ForbiddenError('Invalid status')
         fu.status=FollowUpStatus(payload.status)
-        if payload.status=='sent': fu.sent_at=datetime.now(timezone.utc)
+        if payload.status=='sent':
+            fu.sent_at=datetime.now(timezone.utc)
+            lead=await db.get(Lead,fu.lead_id)
+            if lead and lead.customer_email:
+                business=await db.get(Business,bid)
+                content=fu.content or f'Hi {lead.customer_name}, just following up on your recent request. Are you still interested?'
+                html=followup_html(business.name,lead.customer_name,content,business.brand_color)
+                subject=fu.subject or f'Following up — {business.name}'
+                await EmailService(db).send(lead.customer_email,subject,html,business_id=bid,lead_id=lead.id)
     if payload.scheduled_at: fu.scheduled_at=payload.scheduled_at
     await db.commit()
     return APIResponse(data={'id':str(fu.id),'status':fu.status.value,'scheduled_at':fu.scheduled_at.isoformat(),'sent_at':fu.sent_at.isoformat() if fu.sent_at else None})

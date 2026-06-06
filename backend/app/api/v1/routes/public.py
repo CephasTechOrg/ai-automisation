@@ -16,7 +16,7 @@ async def get_form(slug:str,db:AsyncSession=Depends(get_db)):
     form=(await db.execute(select(Form).where(Form.slug==slug,Form.is_active.is_(True)))).scalar_one_or_none()
     if not form: raise NotFoundError('Form not found')
     b=await db.get(Business,form.business_id)
-    return APIResponse(data=PublicFormRead(form_id=form.id,business_id=b.id,business_name=b.name,business_slug=b.slug,logo_url=b.logo_url,brand_color=b.brand_color,title=form.title,description=form.description,success_message=form.success_message))
+    return APIResponse(data=PublicFormRead(form_id=form.id,business_id=b.id,business_name=b.name,business_slug=b.slug,logo_url=b.logo_url,brand_color=b.brand_color,title=form.title,description=form.description,success_message=form.success_message,services=form.services))
 @router.post('/forms/{slug}/submit',response_model=APIResponse[dict])
 @limiter.limit(f'{settings.PUBLIC_FORM_RATE_LIMIT_PER_MINUTE}/minute')
 async def submit(request:Request,slug:str,payload:PublicLeadSubmit,db:AsyncSession=Depends(get_db)):

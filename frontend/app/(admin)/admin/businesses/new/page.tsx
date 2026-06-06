@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Icon, Card, Badge, Field, Input, Textarea, Select, Toggle, CopyLinkBox, toast } from '@/components/ui'
 import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
-import { INDUSTRIES } from '@/lib/data/mock'
+const INDUSTRIES = ['Home Services', 'Landscaping', 'Real Estate', 'Cleaning Services', 'Health & Wellness', 'Roofing', 'Fitness', 'Plumbing', 'Retail', 'Pet Services']
 
 function slugify(s: string) {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')

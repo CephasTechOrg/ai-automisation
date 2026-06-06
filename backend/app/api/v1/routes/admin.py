@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.errors import NotFoundError
 from app.core.security import AuthUser, require_super_admin
-from app.models.domain import Business, BusinessMember, Profile, Lead, AuditLog
+from app.models.domain import Business, BusinessMember, Profile, Lead, AuditLog, Form
 from app.models.enums import BusinessStatus
 from app.schemas.common import APIResponse
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessRead
@@ -245,6 +245,30 @@ async def resend_invite(
     await db.commit()
     return APIResponse(data={'sent': True, 'email': email})
 
+
+@router.get('/businesses/{business_id}/form', response_model=APIResponse[dict])
+async def get_business_form(business_id: UUID, user: AuthUser = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    form = (await db.execute(select(Form).where(Form.business_id == business_id, Form.is_active.is_(True)))).scalars().first()
+    if not form:
+        raise NotFoundError('No active form for this business')
+    return APIResponse(data={'id': str(form.id), 'slug': form.slug, 'title': form.title, 'description': form.description, 'success_message': form.success_message, 'services': form.services or []})
+
+@router.patch('/businesses/{business_id}/form', response_model=APIResponse[dict])
+async def update_business_form(business_id: UUID, payload: dict, user: AuthUser = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    form = (await db.execute(select(Form).where(Form.business_id == business_id, Form.is_active.is_(True)))).scalars().first()
+    if not form:
+        raise NotFoundError('No active form for this business')
+    if 'services' in payload:
+        form.services = payload['services'] or None
+    if 'title' in payload:
+        form.title = payload['title']
+    if 'description' in payload:
+        form.description = payload['description'] or None
+    if 'success_message' in payload:
+        form.success_message = payload['success_message']
+    await _log(db, user.id, 'form_updated', business_id, {'slug': form.slug})
+    await db.commit()
+    return APIResponse(data={'id': str(form.id), 'slug': form.slug, 'title': form.title, 'description': form.description, 'success_message': form.success_message, 'services': form.services or []})
 
 @router.get('/audit-logs', response_model=APIResponse[list[dict]])
 async def audit_logs(

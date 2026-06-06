@@ -5,7 +5,8 @@ import { useRouter, useParams } from 'next/navigation'
 import { Icon, Card, Field, Input, Select, Badge, BrandTile, toast } from '@/components/ui'
 import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
-import { INDUSTRIES } from '@/lib/data/mock'
+
+const INDUSTRIES = ['Home Services', 'Landscaping', 'Real Estate', 'Cleaning Services', 'Health & Wellness', 'Roofing', 'Fitness', 'Plumbing', 'Retail', 'Pet Services']
 
 interface BusinessRead {
   id: string
@@ -49,27 +50,31 @@ export default function EditBusinessPage() {
   const [status, setStatus] = useState('active')
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [services, setServices] = useState<string[]>([])
+  const [newService, setNewService] = useState('')
+  const [servicesSaving, setServicesSaving] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Load business data
   useEffect(() => {
     if (!token || !id) return
-    api.get<{ ok: boolean; data: BusinessRead }>(`/admin/businesses/${id}`, token)
-      .then(r => {
-        const b = r.data
-        setBusiness(b)
-        setName(b.name)
-        setIndustry(b.industry ?? 'Home Services')
-        setPhone(b.phone ?? '')
-        setEmail(b.contact_email ?? '')
-        setAddress(b.address ?? '')
-        setColor(b.brand_color)
-        setStatus(b.status)
-        setLogoUrl(b.logo_url)
-      })
-      .catch(() => toast('Failed to load business'))
-      .finally(() => setLoading(false))
+    Promise.all([
+      api.get<{ ok: boolean; data: BusinessRead }>(`/admin/businesses/${id}`, token),
+      api.get<{ ok: boolean; data: { services: string[] } }>(`/admin/businesses/${id}/form`, token).catch(() => ({ data: { services: [] } })),
+    ]).then(([bizRes, formRes]) => {
+      const b = bizRes.data
+      setBusiness(b)
+      setName(b.name)
+      setIndustry(b.industry ?? 'Home Services')
+      setPhone(b.phone ?? '')
+      setEmail(b.contact_email ?? '')
+      setAddress(b.address ?? '')
+      setColor(b.brand_color)
+      setStatus(b.status)
+      setLogoUrl(b.logo_url)
+      setServices(formRes.data?.services ?? [])
+    }).catch(() => toast('Failed to load business')).finally(() => setLoading(false))
   }, [token, id])
 
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -144,6 +149,26 @@ export default function EditBusinessPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function saveServices() {
+    if (!token || !id) return
+    setServicesSaving(true)
+    try {
+      await api.patch(`/admin/businesses/${id}/form`, { services }, token)
+      toast('Services saved')
+    } catch {
+      toast('Failed to save services')
+    } finally {
+      setServicesSaving(false)
+    }
+  }
+
+  function addService() {
+    const s = newService.trim()
+    if (!s || services.includes(s)) return
+    setServices(prev => [...prev, s])
+    setNewService('')
   }
 
   const displayLogo = logoPreview ?? logoUrl
@@ -274,10 +299,47 @@ export default function EditBusinessPage() {
             </Field>
           </Card>
 
+          {/* Services */}
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 6 }}>
+              <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>3</div>
+              <span className="section-title" style={{ fontSize: 16 }}>Services Offered</span>
+            </div>
+            <p className="helper" style={{ marginBottom: 16 }}>These appear as options in the public lead form's "Service Needed" dropdown.</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+              {services.map(s => (
+                <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 20, background: 'var(--primary-50)', color: 'var(--primary)', fontSize: 13, fontWeight: 500 }}>
+                  {s}
+                  <button onClick={() => setServices(prev => prev.filter(x => x !== s))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, display: 'flex' }}>
+                    <Icon name="x" size={13} />
+                  </button>
+                </span>
+              ))}
+              {services.length === 0 && <span className="muted" style={{ fontSize: 13 }}>No services added yet.</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                className="input"
+                placeholder="Add a service (e.g. Roof Repair)"
+                value={newService}
+                style={{ flex: 1 }}
+                onChange={e => setNewService(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addService() } }}
+              />
+              <button className="btn btn-secondary btn-sm" onClick={addService} disabled={!newService.trim()}>Add</button>
+            </div>
+            <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary btn-sm" onClick={saveServices} disabled={servicesSaving}>
+                {servicesSaving ? <span className="spinner" /> : <Icon name="check" size={15} />}
+                {servicesSaving ? 'Saving…' : 'Save Services'}
+              </button>
+            </div>
+          </Card>
+
           {/* Status */}
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 18 }}>
-              <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>3</div>
+              <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>4</div>
               <span className="section-title" style={{ fontSize: 16 }}>Business Status</span>
             </div>
             <Field label="Status" helper="Pausing a business hides its form from the public.">
