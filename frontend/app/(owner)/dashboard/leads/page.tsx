@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Icon, Badge, Avatar, Select, Menu, EmptyState, toast, useIsMobile } from '@/components/ui'
 import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
 
-/* ── API shape ──────────────────────────────────────────── */
+/* ── API shapes ─────────────────────────────────────────── */
 interface LeadRead {
   id: string
   business_id: string
@@ -20,17 +20,28 @@ interface LeadRead {
   created_at: string
 }
 
-/* ── UI shape (superset of LeadRead + optional AI fields) ─ */
+interface AIData {
+  summary?: string
+  urgency?: string
+  intent?: string
+  suggested_reply?: string
+  next_step?: string
+  tags?: string[]
+}
+
+interface MsgItem {
+  id: string
+  type: string
+  direction: string
+  content: string
+  created_at: string
+}
+
+/* ── UI shape ───────────────────────────────────────────── */
 interface UILead extends LeadRead {
   displayStatus: string
   initials: string
   timeAgo: string
-  summary: string | null
-  intent: string | null
-  urgency: string | null
-  tags: string[]
-  nextStep: string | null
-  suggestedReply: string | null
   unread: boolean
 }
 
@@ -56,8 +67,7 @@ function timeAgo(isoStr: string) {
   if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
   if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  return `${d}d ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
 function toUILead(l: LeadRead): UILead {
@@ -66,30 +76,25 @@ function toUILead(l: LeadRead): UILead {
     displayStatus: STATUS_DISPLAY[l.status] ?? l.status,
     initials: initials(l.customer_name).toUpperCase(),
     timeAgo: timeAgo(l.created_at),
-    summary: null, intent: null, urgency: null,
-    tags: [], nextStep: null, suggestedReply: null,
     unread: l.status === 'new',
   }
 }
 
 const TL_ICON: Record<string, { icon: string; color: string }> = {
-  received: { icon: 'users', color: 'var(--primary)' },
-  email: { icon: 'mail', color: 'var(--text-muted)' },
-  scheduled: { icon: 'clock', color: 'var(--amber)' },
-  contacted: { icon: 'phone', color: 'var(--green)' },
-  booked: { icon: 'checkCircle', color: 'var(--green)' },
-  lost: { icon: 'xCircle', color: 'var(--red)' },
-  note: { icon: 'note', color: 'var(--text-muted)' },
+  received:  { icon: 'users',       color: 'var(--primary)' },
+  email:     { icon: 'mail',        color: 'var(--text-muted)' },
+  scheduled: { icon: 'clock',       color: 'var(--amber)' },
+  contacted: { icon: 'phone',       color: 'var(--green)' },
+  booked:    { icon: 'checkCircle', color: 'var(--green)' },
+  lost:      { icon: 'xCircle',     color: 'var(--red)' },
+  note:      { icon: 'note',        color: 'var(--text-muted)' },
 }
 
-function MiniStat({ label, value, trend }: { label: string; value: string; trend?: string }) {
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="mini-stat">
       <div className="mini-stat-label">{label}</div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span className="mini-stat-value tabnum">{value}</span>
-        {trend && <span className="mini-stat-trend">{trend}</span>}
-      </div>
+      <div className="mini-stat-value tabnum">{value}</div>
     </div>
   )
 }
@@ -177,7 +182,7 @@ export default function LeadsPage() {
       </div>
 
       <div className="crm-grid">
-        {/* Left */}
+        {/* Left — list */}
         <div className={'crm-list' + (mobileDetail ? ' mobile-hidden' : '')}>
           <div className="lead-filters">
             <div className="input-wrap" style={{ flex: 1, minWidth: 0 }}>
@@ -236,10 +241,10 @@ export default function LeadsPage() {
           )}
         </div>
 
-        {/* Right */}
+        {/* Right — detail */}
         <div className={'crm-detail' + (mobileDetail ? ' mobile-show' : '')}>
           {sel ? (
-            <LeadDetail key={sel.id} lead={sel} setStatus={setStatus} onBack={() => setMobileDetail(false)} />
+            <LeadDetail key={sel.id} lead={sel} token={token} setStatus={setStatus} onBack={() => setMobileDetail(false)} />
           ) : !loading && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
               <EmptyState icon="users" title="Select a lead" text="Pick a lead from the list to view details." />
@@ -254,24 +259,38 @@ export default function LeadsPage() {
 /* ─────────────────────────────────────────────────────────
    Lead detail panel
 ───────────────────────────────────────────────────────── */
-function LeadDetail({ lead, setStatus, onBack }: { lead: UILead; setStatus: (id: string, s: string) => void; onBack: () => void }) {
+function LeadDetail({ lead, token, setStatus, onBack }: {
+  lead: UILead
+  token: string | null
+  setStatus: (id: string, s: string) => void
+  onBack: () => void
+}) {
   const [tab, setTab] = useState('overview')
-  const [reply, setReply] = useState('')
+  const [aiData, setAiData] = useState<AIData | null>(null)
   const isMobile = useIsMobile(980)
+
+  // Fetch AI data whenever this lead is shown
+  useEffect(() => {
+    if (!token) return
+    api.get<{ ok: boolean; data: { lead: LeadRead; ai: AIData | null } }>(`/owner/leads/${lead.id}`, token)
+      .then(r => setAiData(r.data?.ai ?? null))
+      .catch(() => {})
+  }, [token, lead.id])
+
+  const suggestedReply = aiData?.suggested_reply ?? null
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'messages', label: 'Messages' },
-    { id: 'ai', label: 'AI', dot: !!lead.suggestedReply },
+    { id: 'ai', label: 'AI', dot: !!suggestedReply },
     { id: 'timeline', label: 'Timeline' },
   ]
 
   const moreItems = [
     { icon: 'xCircle', label: 'Mark Lost', onClick: () => setStatus(lead.id, 'Lost') },
-    { icon: 'send', label: 'Send Follow-up', onClick: () => toast('Follow-up scheduled') },
-    { icon: 'note', label: 'Add Note', onClick: () => toast('Note added') },
+    { icon: 'send', label: 'Send Follow-up', onClick: () => toast('Follow-up coming soon') },
+    { icon: 'note', label: 'Add Note', onClick: () => toast('Notes coming soon') },
     { divider: true },
-    { icon: 'copy', label: 'Copy Details', onClick: () => toast('Details copied') },
     { icon: 'trash', label: 'Archive', danger: true, onClick: () => setStatus(lead.id, 'Archived') },
   ]
 
@@ -292,12 +311,12 @@ function LeadDetail({ lead, setStatus, onBack }: { lead: UILead; setStatus: (id:
         <Menu align="right" trigger={<button className="btn btn-secondary btn-icon btn-sm"><Icon name="more" size={18} /></button>} items={moreItems} />
       </div>
 
-      {lead.nextStep && (
+      {aiData?.next_step && (
         <div className="nba-card">
           <div className="nba-ic"><Icon name="target" size={18} /></div>
           <div className="grow" style={{ minWidth: 0 }}>
             <div className="nba-label">Next best action</div>
-            <div className="nba-text">{lead.nextStep}</div>
+            <div className="nba-text">{aiData.next_step}</div>
           </div>
           <button className="btn btn-primary btn-sm nba-btn" onClick={() => setTab('messages')}>
             Reply <Icon name="arrowRight" size={15} />
@@ -315,9 +334,9 @@ function LeadDetail({ lead, setStatus, onBack }: { lead: UILead; setStatus: (id:
       </div>
 
       <div className="ld-tabpane">
-        {tab === 'overview' && <OverviewTab lead={lead} onReview={() => setTab('ai')} />}
-        {tab === 'messages' && <MessagesTab lead={lead} reply={reply} setReply={setReply} onReview={() => setTab('ai')} />}
-        {tab === 'ai' && <AITab lead={lead} reply={reply || lead.suggestedReply || ''} setReply={setReply} />}
+        {tab === 'overview' && <OverviewTab lead={lead} aiData={aiData} onReview={() => setTab('ai')} />}
+        {tab === 'messages' && <MessagesTab lead={lead} token={token} suggestedReply={suggestedReply} onReview={() => setTab('ai')} />}
+        {tab === 'ai' && <AITab lead={lead} token={token} aiData={aiData} />}
         {tab === 'timeline' && <TimelineTab lead={lead} />}
       </div>
 
@@ -340,7 +359,10 @@ function LeadDetail({ lead, setStatus, onBack }: { lead: UILead; setStatus: (id:
   )
 }
 
-function OverviewTab({ lead, onReview }: { lead: UILead; onReview: () => void }) {
+/* ─────────────────────────────────────────────────────────
+   Overview tab
+───────────────────────────────────────────────────────── */
+function OverviewTab({ lead, aiData, onReview }: { lead: UILead; aiData: AIData | null; onReview: () => void }) {
   const receivedDate = new Date(lead.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const details: [string, string][] = [
     ['Email', lead.customer_email ?? '—'],
@@ -356,31 +378,33 @@ function OverviewTab({ lead, onReview }: { lead: UILead; onReview: () => void })
         <div className="sec-label">Original request</div>
         <p className="req-quote">{lead.message ?? 'No message provided.'}</p>
       </section>
-      {lead.summary && (
+
+      {aiData?.summary && (
         <section>
           <div className="sec-label" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <Icon name="sparkles" size={14} style={{ color: 'var(--primary)' }} /> AI summary
           </div>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{lead.summary}</p>
-          {(lead.intent || lead.urgency) && (
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{aiData.summary}</p>
+          {(aiData.intent || aiData.urgency) && (
             <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
-              {lead.intent && (
+              {aiData.intent && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span className="sec-meta-k">Intent</span>
-                  <Badge tone={lead.intent === 'High' ? 'green' : lead.intent === 'Medium' ? 'amber' : 'gray'}>{lead.intent}</Badge>
+                  <Badge>{aiData.intent}</Badge>
                 </div>
               )}
-              {lead.urgency && (
+              {aiData.urgency && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span className="sec-meta-k">Urgency</span>
-                  <Badge tone={lead.urgency === 'High' ? 'red' : lead.urgency === 'Medium' ? 'amber' : 'gray'}>{lead.urgency}</Badge>
+                  <Badge tone={aiData.urgency === 'high' ? 'red' : aiData.urgency === 'medium' ? 'amber' : 'gray'}>{aiData.urgency}</Badge>
                 </div>
               )}
             </div>
           )}
         </section>
       )}
-      {lead.suggestedReply && (
+
+      {aiData?.suggested_reply && (
         <button className="ai-teaser" onClick={onReview}>
           <div className="ai-teaser-ic"><Icon name="sparkles" size={16} /></div>
           <div className="grow" style={{ textAlign: 'left' }}>
@@ -390,6 +414,7 @@ function OverviewTab({ lead, onReview }: { lead: UILead; onReview: () => void })
           <span className="btn btn-secondary btn-xs" style={{ flexShrink: 0 }}>Review Reply</span>
         </button>
       )}
+
       <section>
         <div className="sec-label">Details</div>
         <div className="meta-grid">
@@ -405,23 +430,66 @@ function OverviewTab({ lead, onReview }: { lead: UILead; onReview: () => void })
   )
 }
 
-function MessagesTab({ lead, reply, setReply, onReview }: { lead: UILead; reply: string; setReply: (v: string) => void; onReview: () => void }) {
-  const thread = [
-    { kind: 'customer', text: lead.message ?? '(no message)', time: new Date(lead.created_at).toLocaleString() },
-    { kind: 'auto', text: "Thanks for reaching out! We've received your request and will be in touch shortly.", time: new Date(lead.created_at).toLocaleString() },
-  ]
+/* ─────────────────────────────────────────────────────────
+   Messages tab — real API
+───────────────────────────────────────────────────────── */
+function MessagesTab({ lead, token, suggestedReply, onReview }: {
+  lead: UILead
+  token: string | null
+  suggestedReply: string | null
+  onReview: () => void
+}) {
+  const [messages, setMessages] = useState<MsgItem[]>([])
+  const [loadingMsgs, setLoadingMsgs] = useState(true)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!token) return
+    setLoadingMsgs(true)
+    api.get<{ ok: boolean; data: MsgItem[] }>(`/owner/leads/${lead.id}/messages`, token)
+      .then(r => setMessages(r.data ?? []))
+      .catch(() => {})
+      .finally(() => setLoadingMsgs(false))
+  }, [token, lead.id])
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [messages])
+
+  async function send(text: string) {
+    if (!text.trim() || !token || sending) return
+    setSending(true)
+    const optimisticId = 'opt-' + Date.now()
+    const optimistic: MsgItem = { id: optimisticId, type: 'owner_reply', direction: 'outbound', content: text, created_at: new Date().toISOString() }
+    setMessages(ms => [...ms.filter(m => m.type !== 'ai_draft'), optimistic])
+    setDraft('')
+    try {
+      const res = await api.post<{ ok: boolean; data: MsgItem }>(`/owner/leads/${lead.id}/messages`, { content: text }, token)
+      setMessages(ms => ms.map(m => m.id === optimisticId ? res.data : m))
+      toast('Reply sent')
+    } catch {
+      setMessages(ms => ms.filter(m => m.id !== optimisticId))
+      toast('Failed to send reply')
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="ld-thread">
-        {thread.map((m, i) => (
-          <div key={i} className={'ld-msg ' + m.kind}>
-            <div className="ld-msg-label">{m.kind === 'customer' ? 'Customer Message' : 'Auto Reply'}</div>
-            <div className={'ld-msg-bubble ' + m.kind}>{m.text}</div>
-            <div className="ld-msg-time">{m.time}</div>
+      <div className="ld-thread" ref={scrollRef}>
+        {loadingMsgs ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 0' }}>
+            <div className="spinner" /><span className="muted" style={{ fontSize: 13 }}>Loading messages…</span>
           </div>
-        ))}
+        ) : messages.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13, padding: '12px 0' }}>No messages yet.</div>
+        ) : messages.map((m, i) => <MsgBubble key={m.id ?? i} msg={m} />)}
       </div>
-      {lead.suggestedReply && (
+
+      {suggestedReply && (
         <div className="ai-teaser" style={{ cursor: 'pointer' }} onClick={onReview}>
           <div className="ai-teaser-ic"><Icon name="sparkles" size={16} /></div>
           <div className="grow" style={{ textAlign: 'left' }}>
@@ -430,15 +498,24 @@ function MessagesTab({ lead, reply, setReply, onReview }: { lead: UILead; reply:
           <span className="btn btn-secondary btn-xs" style={{ flexShrink: 0 }}>Review</span>
         </div>
       )}
+
       <div className="ld-composer">
-        <textarea className="textarea" placeholder="Write a reply…" value={reply} onChange={e => setReply(e.target.value)} style={{ minHeight: 90 }} />
+        <textarea
+          className="textarea"
+          placeholder="Write a reply…"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft) } }}
+          style={{ minHeight: 90 }}
+          disabled={sending}
+        />
         <div className="between" style={{ marginTop: 10 }}>
-          {lead.suggestedReply && (
+          {suggestedReply && (
             <button className="btn btn-ghost btn-sm" onClick={onReview}><Icon name="sparkles" size={15} /> Use AI draft</button>
           )}
           <div style={{ marginLeft: 'auto' }}>
-            <button className="btn btn-primary btn-sm" onClick={() => toast('Reply sent to ' + lead.customer_name.split(' ')[0])}>
-              <Icon name="send" size={15} /> Send Reply
+            <button className="btn btn-primary btn-sm" onClick={() => send(draft)} disabled={sending || !draft.trim()}>
+              {sending ? <><span className="spinner" /> Sending…</> : <><Icon name="send" size={15} /> Send Reply</>}
             </button>
           </div>
         </div>
@@ -447,75 +524,155 @@ function MessagesTab({ lead, reply, setReply, onReview }: { lead: UILead; reply:
   )
 }
 
-function AITab({ lead, reply, setReply }: { lead: UILead; reply: string; setReply: (v: string) => void }) {
+function MsgBubble({ msg }: { msg: MsgItem }) {
+  const time = new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+  if (msg.type === 'customer_message') {
+    return (
+      <div className="ld-msg customer">
+        <div className="ld-msg-label">Customer Message</div>
+        <div className="ld-msg-bubble customer">{msg.content}</div>
+        <div className="ld-msg-time">{time}</div>
+      </div>
+    )
+  }
+  if (msg.type === 'auto_reply') {
+    return (
+      <div className="ld-msg auto">
+        <div className="ld-msg-label">Auto Reply</div>
+        <div className="ld-msg-bubble auto">{msg.content}</div>
+        <div className="ld-msg-time">{time}</div>
+      </div>
+    )
+  }
+  if (msg.type === 'ai_draft') {
+    return (
+      <div className="ld-msg auto">
+        <div className="ld-msg-label" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Icon name="sparkles" size={12} style={{ color: 'var(--primary)' }} /> AI Draft · pending approval
+        </div>
+        <div className="ld-msg-bubble auto" style={{ borderColor: 'var(--primary)', background: 'var(--primary-50)' }}>{msg.content}</div>
+        <div className="ld-msg-time">{time}</div>
+      </div>
+    )
+  }
+  // owner_reply or outbound
+  return (
+    <div className="ld-msg owner">
+      <div className="ld-msg-label">Your Reply</div>
+      <div className="ld-msg-bubble owner">{msg.content}</div>
+      <div className="ld-msg-time">{time}</div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────
+   AI tab — real data
+───────────────────────────────────────────────────────── */
+function AITab({ lead, token, aiData }: { lead: UILead; token: string | null; aiData: AIData | null }) {
+  const [draft, setDraft] = useState(aiData?.suggested_reply ?? '')
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    setDraft(aiData?.suggested_reply ?? '')
+  }, [aiData?.suggested_reply])
+
+  async function approveAndSend() {
+    if (!draft.trim() || !token || sending) return
+    setSending(true)
+    try {
+      await api.post(`/owner/leads/${lead.id}/messages`, { content: draft }, token)
+      toast('Reply sent to ' + lead.customer_name.split(' ')[0])
+    } catch {
+      toast('Failed to send reply')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (!aiData) {
+    return (
+      <div style={{ padding: '32px 0', textAlign: 'center' }}>
+        <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--primary-50)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+          <Icon name="sparkles" size={22} style={{ color: 'var(--primary)' }} />
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>AI analysis pending</div>
+        <p className="muted" style={{ fontSize: 13.5, marginTop: 8, maxWidth: 300, margin: '8px auto 0' }}>
+          AI insights will appear here once the lead has been processed.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="tabpane-stack">
-      {lead.summary || lead.suggestedReply ? (
-        <>
-          <div className="ai-states">
-            <span className="ai-state done"><Icon name="check" size={12} /> Auto-reply sent</span>
-            {lead.suggestedReply && <span className="ai-state pending"><Icon name="sparkles" size={12} /> Draft awaiting approval</span>}
-          </div>
-          {lead.summary && (
-            <section>
-              <div className="sec-label">Summary</div>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{lead.summary}</p>
-              {(lead.intent || lead.urgency) && (
-                <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
-                  {lead.intent && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <span className="sec-meta-k">Intent</span>
-                      <Badge tone={lead.intent === 'High' ? 'green' : lead.intent === 'Medium' ? 'amber' : 'gray'}>{lead.intent}</Badge>
-                    </div>
-                  )}
-                  {lead.urgency && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <span className="sec-meta-k">Urgency</span>
-                      <Badge tone={lead.urgency === 'High' ? 'red' : lead.urgency === 'Medium' ? 'amber' : 'gray'}>{lead.urgency}</Badge>
-                    </div>
-                  )}
+      <div className="ai-states">
+        <span className="ai-state done"><Icon name="check" size={12} /> Auto-reply sent</span>
+        {aiData.suggested_reply && <span className="ai-state pending"><Icon name="sparkles" size={12} /> Draft awaiting approval</span>}
+      </div>
+
+      {aiData.summary && (
+        <section>
+          <div className="sec-label">Summary</div>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{aiData.summary}</p>
+          {(aiData.intent || aiData.urgency) && (
+            <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
+              {aiData.intent && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span className="sec-meta-k">Intent</span>
+                  <Badge>{aiData.intent}</Badge>
                 </div>
               )}
-              {lead.tags.length > 0 && (
-                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
-                  {lead.tags.map((t, i) => (
-                    <span key={i} className="tag" style={{ fontSize: 12, height: 24, background: 'var(--primary-50)', color: 'var(--primary)', borderColor: 'var(--info-border)' }}>{t}</span>
-                  ))}
+              {aiData.urgency && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span className="sec-meta-k">Urgency</span>
+                  <Badge tone={aiData.urgency === 'high' ? 'red' : aiData.urgency === 'medium' ? 'amber' : 'gray'}>{aiData.urgency}</Badge>
                 </div>
               )}
-            </section>
+            </div>
           )}
-          {lead.nextStep && (
-            <section>
-              <div className="sec-label">Recommended next step</div>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{lead.nextStep}</p>
-            </section>
+          {aiData.tags && aiData.tags.length > 0 && (
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
+              {aiData.tags.map((t, i) => (
+                <span key={i} className="tag" style={{ fontSize: 12, height: 24, background: 'var(--primary-50)', color: 'var(--primary)', borderColor: 'var(--info-border)' }}>{t}</span>
+              ))}
+            </div>
           )}
-          {lead.suggestedReply && (
-            <section>
-              <div className="sec-label">Suggested reply</div>
-              <textarea className="textarea" value={reply} onChange={e => setReply(e.target.value)} style={{ minHeight: 150, fontSize: 13.5, background: 'var(--muted-bg-2)' }} />
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => toast('Reply sent to ' + lead.customer_name.split(' ')[0])}>
-                  <Icon name="send" size={16} /> Approve &amp; Send
-                </button>
-                <button className="btn btn-secondary btn-icon" title="Copy" onClick={() => toast('Copied to clipboard')}><Icon name="copy" size={17} /></button>
-                <button className="btn btn-secondary btn-icon" title="Regenerate" onClick={() => toast('Regenerating reply…')}><Icon name="refresh" size={17} /></button>
-              </div>
-            </section>
-          )}
-        </>
-      ) : (
-        <div style={{ padding: '32px 0', textAlign: 'center' }}>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--primary-50)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-            <Icon name="sparkles" size={22} style={{ color: 'var(--primary)' }} />
-          </div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>AI analysis pending</div>
-          <p className="muted" style={{ fontSize: 13.5, marginTop: 8, maxWidth: 300, margin: '8px auto 0' }}>
-            AI insights will appear here once the lead has been processed.
-          </p>
-        </div>
+        </section>
       )}
+
+      {aiData.next_step && (
+        <section>
+          <div className="sec-label">Recommended next step</div>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{aiData.next_step}</p>
+        </section>
+      )}
+
+      {aiData.suggested_reply && (
+        <section>
+          <div className="sec-label">Suggested reply</div>
+          <textarea
+            className="textarea"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            style={{ minHeight: 150, fontSize: 13.5, background: 'var(--muted-bg-2)' }}
+            disabled={sending}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={approveAndSend} disabled={sending || !draft.trim()}>
+              {sending ? <><span className="spinner" /> Sending…</> : <><Icon name="send" size={16} /> Approve &amp; Send</>}
+            </button>
+            <button
+              className="btn btn-secondary btn-icon"
+              title="Copy"
+              onClick={() => { navigator.clipboard.writeText(draft); toast('Copied') }}
+            >
+              <Icon name="copy" size={17} />
+            </button>
+          </div>
+        </section>
+      )}
+
       <div className="helper" style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
         <Icon name="shield" size={13} style={{ flexShrink: 0, marginTop: 1 }} />
         AI only auto-sends the acknowledgement email. Important replies are drafted for you to review and send.
@@ -524,6 +681,9 @@ function AITab({ lead, reply, setReply }: { lead: UILead; reply: string; setRepl
   )
 }
 
+/* ─────────────────────────────────────────────────────────
+   Timeline tab
+───────────────────────────────────────────────────────── */
 function TimelineTab({ lead }: { lead: UILead }) {
   const received = new Date(lead.created_at)
   const events = [
@@ -560,7 +720,7 @@ function TimelineTab({ lead }: { lead: UILead }) {
         <div className="tl-dot" style={{ color: 'var(--text-disabled)', borderColor: 'var(--border)', borderStyle: 'dashed' }}>
           <Icon name="plus" size={13} />
         </div>
-        <button className="btn btn-ghost btn-xs" style={{ paddingLeft: 0 }} onClick={() => toast('Note added')}>
+        <button className="btn btn-ghost btn-xs" style={{ paddingLeft: 0 }} onClick={() => toast('Notes coming soon')}>
           Add note or activity
         </button>
       </div>
