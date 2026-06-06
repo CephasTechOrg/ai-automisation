@@ -1,6 +1,7 @@
 from uuid import UUID
+from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.errors import NotFoundError, ForbiddenError
@@ -64,6 +65,18 @@ async def update_owner_business(payload:OwnerBusinessUpdate,user:AuthUser=Depend
         setattr(b,k,v)
     await db.commit(); await db.refresh(b)
     return APIResponse(data=BusinessRead.model_validate(b))
+@router.get('/metrics',response_model=APIResponse[list[dict]])
+async def owner_metrics(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
+    bid=await business_id(db,user.id)
+    today=date.today(); start=today-timedelta(days=13)
+    rows=(await db.execute(
+        select(cast(Lead.created_at,Date).label('day'),func.count().label('cnt'))
+        .where(Lead.business_id==bid, cast(Lead.created_at,Date)>=start)
+        .group_by('day').order_by('day')
+    )).all()
+    counts={r.day:r.cnt for r in rows}
+    data=[{'label':(start+timedelta(days=i)).strftime('%b %-d'),'v':counts.get(start+timedelta(days=i),0)} for i in range(14)]
+    return APIResponse(data=data)
 @router.get('/form',response_model=APIResponse[dict])
 async def owner_form(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
     bid=await business_id(db,user.id)

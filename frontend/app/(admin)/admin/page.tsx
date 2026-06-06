@@ -1,38 +1,82 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Icon, StatCard, Card, AreaChart, Badge, Avatar, BrandTile, PlanBadge, Pagination, Select, Menu, toast } from '@/components/ui'
-import { BUSINESSES, ACTIVITY, PLATFORM_GROWTH } from '@/lib/data/mock'
+import { Icon, StatCard, Card, AreaChart, Badge, Avatar, BrandTile, Pagination, Select, Menu, toast } from '@/components/ui'
+import { api } from '@/lib/api/client'
+import { useApiToken } from '@/lib/hooks/useApiToken'
 
-const KPIS = [
-  { icon: 'building', label: 'Total Businesses', value: '248', trend: '18%', trendDir: 'up' as const, accent: '#2563EB', trendNote: 'vs May 5 – May 11' },
-  { icon: 'users', label: 'Active Owners', value: '312', trend: '14%', trendDir: 'up' as const, accent: '#0891B2', trendNote: 'vs May 5 – May 11' },
-  { icon: 'userPlus', label: 'New Leads Today', value: '128', trend: '24%', trendDir: 'up' as const, accent: '#059669', trendNote: 'vs May 5 – May 11' },
-  { icon: 'mail', label: 'Emails Sent', value: '1,842', trend: '16%', trendDir: 'up' as const, accent: '#7C3AED', trendNote: 'vs May 5 – May 11' },
-]
-
-const ACT_TONE: Record<string, string> = {
-  blue: 'var(--primary)', violet: 'var(--violet)', green: 'var(--green)', gray: 'var(--text-muted)',
+interface BusinessRead {
+  id: string
+  name: string
+  slug: string
+  industry: string | null
+  contact_email: string | null
+  brand_color: string
+  status: string
+  logo_url: string | null
+  created_at: string
 }
 
-const BIZ_MENU = [
-  { icon: 'eye', label: 'View Business' },
-  { icon: 'edit', label: 'Edit Business' },
-  { icon: 'copy', label: 'Copy Form Link', onClick: () => toast('Form link copied') },
-  { icon: 'mail', label: 'Resend Owner Invite', onClick: () => toast('Invite resent') },
-  { divider: true },
-  { icon: 'pause', label: 'Pause Business', onClick: () => toast('Business paused') },
-  { icon: 'trash', label: 'Archive Business', danger: true },
-]
+interface Metrics {
+  total_businesses: number
+  active_businesses: number
+  leads_today: number
+  leads_this_week: number
+  chart: { label: string; v: number }[]
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function bizInitials(name: string) {
+  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+}
 
 export default function AdminOverviewPage() {
   const router = useRouter()
+  const token = useApiToken()
+  const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const [businesses, setBusinesses] = useState<BusinessRead[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    Promise.all([
+      api.get<{ ok: boolean; data: Metrics }>('/admin/metrics', token),
+      api.get<{ ok: boolean; data: BusinessRead[] }>('/admin/businesses?limit=5', token),
+    ]).then(([mRes, bRes]) => {
+      setMetrics(mRes.data ?? null)
+      setBusinesses(bRes.data ?? [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [token])
+
+  async function setStatus(bizId: string, status: string, bizName: string) {
+    if (!token) return
+    try {
+      await api.patch(`/admin/businesses/${bizId}/status`, { status }, token)
+      setBusinesses(bs => bs.map(b => b.id === bizId ? { ...b, status } : b))
+      if (metrics && status === 'active') setMetrics(m => m ? { ...m, active_businesses: m.active_businesses + 1 } : m)
+      if (metrics && status !== 'active') setMetrics(m => m ? { ...m, active_businesses: Math.max(0, m.active_businesses - 1) } : m)
+      toast(`${bizName} ${status}`)
+    } catch {
+      toast('Failed to update status')
+    }
+  }
+
+  const kpis = [
+    { icon: 'building', label: 'Total Businesses', value: loading ? '—' : String(metrics?.total_businesses ?? 0), trend: 'all time', trendDir: 'up' as const, accent: '#2563EB', trendNote: 'platform total' },
+    { icon: 'users', label: 'Active Businesses', value: loading ? '—' : String(metrics?.active_businesses ?? 0), trend: 'live now', trendDir: 'up' as const, accent: '#0891B2', trendNote: 'currently active' },
+    { icon: 'userPlus', label: 'New Leads Today', value: loading ? '—' : String(metrics?.leads_today ?? 0), trend: 'today', trendDir: 'up' as const, accent: '#059669', trendNote: 'across all businesses' },
+    { icon: 'mail', label: 'Leads This Week', value: loading ? '—' : String(metrics?.leads_this_week ?? 0), trend: 'last 7 days', trendDir: 'up' as const, accent: '#7C3AED', trendNote: 'across all businesses' },
+  ]
 
   const quickActions = [
     { icon: 'plus', t: 'Add Business', d: 'Create a new business', action: () => router.push('/admin/businesses/new') },
-    { icon: 'userPlus', t: 'Add Owner', d: 'Invite a new owner', action: () => toast('Invite owner') },
-    { icon: 'mail', t: 'Resend Invite', d: 'Resend owner invitation', action: () => toast('Invite resent') },
     { icon: 'fileText', t: 'View Audit Logs', d: 'Review system activity', action: () => router.push('/admin/audit') },
+    { icon: 'building', t: 'All Businesses', d: 'Manage every business', action: () => router.push('/admin/businesses') },
   ]
 
   return (
@@ -42,15 +86,10 @@ export default function AdminOverviewPage() {
           <h1 className="page-title">Admin Overview</h1>
           <p className="page-subtitle">Monitor platform activity and system performance.</p>
         </div>
-        <button className="btn btn-secondary">
-          <Icon name="calendar" size={17} style={{ color: 'var(--text-muted)' }} />
-          May 12 – May 18, 2025
-          <Icon name="chevDown" size={15} style={{ color: 'var(--text-muted)' }} />
-        </button>
       </div>
 
       <div className="kpi-grid" style={{ marginBottom: 22 }}>
-        {KPIS.map((k, i) => <StatCard key={i} {...k} />)}
+        {kpis.map((k, i) => <StatCard key={i} {...k} />)}
       </div>
 
       <div className="ov-grid">
@@ -60,13 +99,16 @@ export default function AdminOverviewPage() {
             <div className="between" style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span className="section-title" style={{ fontSize: 16 }}>Platform Growth</span>
-                <Icon name="info" size={15} style={{ color: 'var(--text-disabled)' }} />
               </div>
-              <div style={{ width: 110 }}>
-                <Select options={['Daily', 'Weekly', 'Monthly']} value="Daily" onChange={() => {}} />
-              </div>
+              <span className="muted" style={{ fontSize: 12 }}>Last 14 days</span>
             </div>
-            <AreaChart data={PLATFORM_GROWTH} height={250} maxOverride={1000} />
+            {loading || !metrics ? (
+              <div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="spinner" />
+              </div>
+            ) : (
+              <AreaChart data={metrics.chart} height={250} />
+            )}
           </Card>
 
           {/* Recently Added Businesses */}
@@ -74,66 +116,64 @@ export default function AdminOverviewPage() {
             <div className="between" style={{ padding: '18px 22px 14px' }}>
               <span className="section-title" style={{ fontSize: 16 }}>Recently Added Businesses</span>
               <button className="btn btn-ghost btn-xs" onClick={() => router.push('/admin/businesses')}>
-                View all businesses <Icon name="arrowRight" size={14} />
+                View all <Icon name="arrowRight" size={14} />
               </button>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="table">
-                <thead><tr>{['Business', 'Owner', 'Plan', 'Added On', 'Status', 'Actions'].map(h => <th key={h}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {BUSINESSES.slice(0, 5).map(b => (
-                    <tr key={b.slug}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-                          <BrandTile icon={b.icon} color={b.color} name={b.name} size={34} />
-                          <div>
-                            <div className="strong">{b.name}</div>
-                            <div className="muted" style={{ fontSize: 12 }}>{b.domain}</div>
+            {loading ? (
+              <div style={{ padding: '24px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="spinner" />
+                <span className="muted" style={{ fontSize: 14 }}>Loading…</span>
+              </div>
+            ) : businesses.length === 0 ? (
+              <div style={{ padding: '24px 22px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
+                No businesses yet. <button className="btn-link" onClick={() => router.push('/admin/businesses/new')}>Create one</button>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="table">
+                  <thead><tr>{['Business', 'Industry', 'Added On', 'Status', 'Actions'].map(h => <th key={h}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {businesses.map(b => (
+                      <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/admin/businesses/${b.id}/edit`)}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                            <BrandTile icon="building" color={b.brand_color} name={b.name} size={34} />
+                            <div>
+                              <div className="strong">{b.name}</div>
+                              <div className="muted" style={{ fontSize: 12 }}>{b.contact_email ?? b.slug}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Avatar name={b.owner} size={26} />{b.owner}
-                        </div>
-                      </td>
-                      <td><PlanBadge>{b.plan}</PlanBadge></td>
-                      <td className="tabnum">{b.added}</td>
-                      <td><Badge>{b.status === 'Pending' ? 'Invited' : b.status}</Badge></td>
-                      <td><Menu trigger={<button className="icon-btn" style={{ width: 32, height: 32 }}><Icon name="more" size={18} /></button>} items={BIZ_MENU} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ padding: '4px 18px 14px' }}>
-              <Pagination page={1} pages={5} info="Showing 1 to 5 of 248 businesses" onPage={() => {}} />
-            </div>
+                        </td>
+                        <td>{b.industry ?? '—'}</td>
+                        <td className="tabnum">{formatDate(b.created_at)}</td>
+                        <td>
+                          <Badge tone={b.status === 'active' ? 'green' : b.status === 'paused' ? 'amber' : b.status === 'archived' ? 'red' : 'gray'}>
+                            {b.status === 'pending' ? 'Invited' : b.status.charAt(0).toUpperCase() + b.status.slice(1)}
+                          </Badge>
+                        </td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <Menu
+                            trigger={<button className="icon-btn" style={{ width: 32, height: 32 }}><Icon name="more" size={18} /></button>}
+                            items={[
+                              { icon: 'edit', label: 'Edit Business', onClick: () => router.push(`/admin/businesses/${b.id}/edit`) },
+                              { divider: true },
+                              b.status !== 'paused' && b.status !== 'archived'
+                                ? { icon: 'pause', label: 'Pause Business', onClick: () => setStatus(b.id, 'paused', b.name) }
+                                : { icon: 'check', label: 'Activate Business', onClick: () => setStatus(b.id, 'active', b.name) },
+                              { icon: 'trash', label: 'Archive Business', danger: true, onClick: () => setStatus(b.id, 'archived', b.name) },
+                            ].filter(Boolean) as never[]}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-          {/* Recent Activity */}
-          <Card>
-            <div className="between" style={{ marginBottom: 16 }}>
-              <span className="section-title" style={{ fontSize: 16 }}>Recent Activity</span>
-              <button className="btn btn-ghost btn-xs">View all <Icon name="arrowRight" size={14} /></button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {ACTIVITY.map((a, i) => (
-                <div key={i} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: i < ACTIVITY.length - 1 ? '1px solid var(--divider)' : 'none' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 9, background: ACT_TONE[a.tone] + '14', color: ACT_TONE[a.tone], display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon name={a.icon} size={16} />
-                  </div>
-                  <div className="grow" style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.4 }}>{a.title}</div>
-                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{a.meta} · {a.time}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
           {/* Quick Actions */}
           <Card>
             <div className="section-title" style={{ fontSize: 16, marginBottom: 16 }}>Quick Actions</div>
@@ -146,6 +186,27 @@ export default function AdminOverviewPage() {
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>{q.t}</div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{q.d}</div>
                 </button>
+              ))}
+            </div>
+          </Card>
+
+          {/* Platform Summary */}
+          <Card>
+            <div className="section-title" style={{ fontSize: 16, marginBottom: 14 }}>Platform Summary</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[
+                { icon: 'building', label: 'Total businesses', value: metrics?.total_businesses ?? '—' },
+                { icon: 'check', label: 'Active businesses', value: metrics?.active_businesses ?? '—' },
+                { icon: 'userPlus', label: 'Leads this week', value: metrics?.leads_this_week ?? '—' },
+                { icon: 'mail', label: 'Leads today', value: metrics?.leads_today ?? '—' },
+              ].map((row, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: i < 3 ? '1px solid var(--divider)' : 'none' }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--muted-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name={row.icon} size={15} style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                  <span style={{ fontSize: 13.5, flex: 1 }}>{row.label}</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{loading ? '—' : row.value}</span>
+                </div>
               ))}
             </div>
           </Card>

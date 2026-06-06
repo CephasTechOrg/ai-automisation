@@ -1,7 +1,7 @@
 # LeadFlow Pro — Implementation Roadmap
 
 **Stack:** Next.js App Router · FastAPI · Supabase Auth + PostgreSQL + Storage · Resend · DeepSeek  
-**Last updated:** 2026-06-05  
+**Last updated:** 2026-06-06  
 **Rule:** Every page must pull from a real API endpoint before it is considered done. No mock data in production UI.
 
 ---
@@ -39,7 +39,7 @@ Each task shows: what currently exists → what needs to change → which backen
 ### Pages that DO NOT EXIST YET
 | Page | Route | What it needs |
 |---|---|---|
-| Lead Detail | `/dashboard/leads/[id]` | Full lead info, AI summary, message thread, send reply |
+| Lead Detail | `/dashboard/leads/[id]` | ~~Full lead info, AI summary, message thread, send reply~~ — **backend complete, frontend panel live in leads list** |
 
 ---
 
@@ -71,25 +71,26 @@ Public:
 ### Missing endpoints (need to be built)
 ```
 Owner:
-  GET    /owner/leads/{id}                     single lead detail + AI summary
-  POST   /owner/leads/{id}/messages            send a reply to a lead
+  ✅ GET    /owner/leads/{id}                  single lead detail + AI summary — DONE
+  ✅ POST   /owner/leads/{id}/messages         send a reply to a lead — DONE
   GET    /owner/metrics                        lead volume grouped by day (chart data)
   GET    /owner/followups                      list follow-ups for business
   PATCH  /owner/followups/{id}                 mark sent / reschedule / cancel
 
 Admin:
-  GET    /admin/metrics                        platform-wide KPI numbers
+  ✅ GET    /admin/metrics                     platform-wide KPI numbers — DONE
   GET    /admin/audit-logs                     paginated audit log list
-  PATCH  /admin/businesses/{id}/status         pause / archive a business
+  ✅ PATCH  /admin/businesses/{id}/status      pause / archive a business — DONE
 ```
 
 ---
 
 ---
 
-# PHASE 1 — Lead Detail Page
+# ✅ PHASE 1 — Lead Detail Page — COMPLETE
 **Goal:** Owner can click any lead and see everything about it in one place.  
-**Why first:** This is the most visible gap. It also unlocks messages, AI summary, and status updates in context.
+**Status:** All backend endpoints built and tested. Frontend panel wired in leads list page.  
+**Fix applied 2026-06-06:** Missing `MessageDirection`, `MessageChannel`, `MessageType` imports caused 500 on POST — fixed.
 
 ## 1A. Backend: GET /owner/leads/{id}
 
@@ -185,9 +186,9 @@ onClick={() => router.push(`/dashboard/leads/${lead.id}`)}
 
 ---
 
-# PHASE 2 — Clean the Messages Page
+# ✅ PHASE 2 — Clean the Messages Page — COMPLETE
 **Goal:** Replace 100% mock data with real API. Reframe the page as "leads with messages" rather than a standalone chat inbox.  
-**Why this approach:** The backend stores messages per-lead, not as standalone conversations. The current mock CONVERSATIONS structure doesn't match reality.
+**Status:** Fully rewritten. Fetches `/owner/leads` for the sidebar list, `/owner/leads/{id}/messages` + `/owner/leads/{id}` for the thread + AI suggestion, `POST /owner/leads/{id}/messages` for sending. Zero mock imports.
 
 ## 2A. Reframe the Messages page
 
@@ -215,7 +216,7 @@ State becomes:
 
 ---
 
-# PHASE 3 — Owner Dashboard Chart (Lead Volume)
+# ✅ PHASE 3 — Owner Dashboard Chart (Lead Volume) — COMPLETE
 **Goal:** Replace mock LEAD_VOLUME with real per-day lead counts.
 
 ## 3A. Backend: GET /owner/metrics
@@ -246,7 +247,7 @@ Use SQLAlchemy `func.date()` and `func.count()`. Return last 14 days of data.
 
 ---
 
-# PHASE 4 — Admin Overview Page
+# ✅ PHASE 4 — Admin Overview Page — COMPLETE
 **Goal:** Replace 100% mock KPIs, business list, and activity feed with real data.
 
 ## 4A. Backend: GET /admin/metrics

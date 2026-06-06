@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation'
 import { Icon, StatCard, Card, AreaChart, Badge, Avatar, CopyLinkBox, useIsMobile } from '@/components/ui'
 import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
-import { LEAD_VOLUME } from '@/lib/data/mock'
-
 interface LeadRead {
   id: string
   customer_name: string
@@ -49,6 +47,7 @@ export default function OwnerDashboardPage() {
   const [leads, setLeads] = useState<LeadRead[]>([])
   const [loading, setLoading] = useState(true)
   const [formSlug, setFormSlug] = useState<string | null>(null)
+  const [chartData, setChartData] = useState<{ label: string; v: number }[]>([])
 
   useEffect(() => {
     if (!token) return
@@ -58,6 +57,9 @@ export default function OwnerDashboardPage() {
       .finally(() => setLoading(false))
     api.get<{ ok: boolean; data: { slug: string } }>('/owner/form', token)
       .then(r => setFormSlug(r.data?.slug ?? null))
+      .catch(() => {})
+    api.get<{ ok: boolean; data: { label: string; v: number }[] }>('/owner/metrics', token)
+      .then(r => setChartData(r.data ?? []))
       .catch(() => {})
   }, [token])
 
@@ -127,13 +129,13 @@ export default function OwnerDashboardPage() {
           <FormLinkCard router={router} formSlug={formSlug} />
           <RecentLeadsCard recent={recent} loading={loading} router={router} isMobile={isMobile} />
           <AIInsightsCard />
-          <ChartCard />
+          <ChartCard data={chartData} />
         </div>
       ) : (
         <div className="ov-grid">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
             <RecentLeadsCard recent={recent} loading={loading} router={router} isMobile={isMobile} />
-            <ChartCard />
+            <ChartCard data={chartData} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
             <FormLinkCard router={router} formSlug={formSlug} />
@@ -192,13 +194,20 @@ function AIInsightsCard() {
   )
 }
 
-function ChartCard() {
+function ChartCard({ data }: { data: { label: string; v: number }[] }) {
   return (
     <Card>
       <div className="between" style={{ marginBottom: 14 }}>
         <span className="section-title" style={{ fontSize: 15 }}>Lead Volume</span>
+        <span className="muted" style={{ fontSize: 12 }}>Last 14 days</span>
       </div>
-      <AreaChart data={LEAD_VOLUME} height={190} maxOverride={80} />
+      {data.length === 0 ? (
+        <div style={{ height: 190, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="spinner" />
+        </div>
+      ) : (
+        <AreaChart data={data} height={190} />
+      )}
     </Card>
   )
 }

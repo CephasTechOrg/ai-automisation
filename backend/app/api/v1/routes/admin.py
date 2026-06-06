@@ -1,14 +1,16 @@
 import time
 from uuid import UUID
+from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from supabase import create_client
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.errors import NotFoundError
 from app.core.security import AuthUser, require_super_admin
-from app.models.domain import Business, BusinessMember, Profile
+from app.models.domain import Business, BusinessMember, Profile, Lead
+from app.models.enums import BusinessStatus
 from app.schemas.common import APIResponse
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessRead
 from app.services.core_services import BusinessService
@@ -37,6 +39,41 @@ def _ensure_bucket(sb) -> None:
     except Exception:
         pass  # bucket already exists
 
+
+@router.get('/metrics', response_model=APIResponse[dict])
+async def admin_metrics(user: AuthUser = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
+    today = date.today(); week_start = today - timedelta(days=6); chart_start = today - timedelta(days=13)
+    total_biz = (await db.execute(select(func.count()).select_from(Business))).scalar_one()
+    active_biz = (await db.execute(select(func.count()).select_from(Business).where(Business.status == BusinessStatus.ACTIVE))).scalar_one()
+    leads_today = (await db.execute(select(func.count()).select_from(Lead).where(cast(Lead.created_at, Date) == today))).scalar_one()
+    leads_week = (await db.execute(select(func.count()).select_from(Lead).where(cast(Lead.created_at, Date) >= week_start))).scalar_one()
+    chart_rows = (await db.execute(
+        select(cast(Lead.created_at, Date).label('day'), func.count().label('cnt'))
+        .where(cast(Lead.created_at, Date) >= chart_start)
+        .group_by('day').order_by('day')
+    )).all()
+    counts = {r.day: r.cnt for r in chart_rows}
+    chart = [{'label': (chart_start + timedelta(days=i)).strftime('%b %-d'), 'v': counts.get(chart_start + timedelta(days=i), 0)} for i in range(14)]
+    return APIResponse(data={'total_businesses': total_biz, 'active_businesses': active_biz, 'leads_today': leads_today, 'leads_this_week': leads_week, 'chart': chart})
+
+@router.patch('/businesses/{business_id}/status', response_model=APIResponse[BusinessRead])
+async def set_business_status(
+    business_id: UUID,
+    payload: dict,
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    from pydantic import BaseModel
+    status_val = payload.get('status')
+    if status_val not in [s.value for s in BusinessStatus]:
+        raise HTTPException(status_code=422, detail=f'Invalid status. Must be one of: {[s.value for s in BusinessStatus]}')
+    business = await db.get(Business, business_id)
+    if not business:
+        raise NotFoundError('Business not found')
+    business.status = BusinessStatus(status_val)
+    await db.commit()
+    await db.refresh(business)
+    return APIResponse(data=BusinessRead.model_validate(business))
 
 @router.post('/businesses', response_model=APIResponse[dict])
 async def create_business(
