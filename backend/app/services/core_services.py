@@ -1,5 +1,6 @@
 import re, json, httpx, resend
 from uuid import UUID
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from supabase import create_client
@@ -63,4 +64,6 @@ class LeadWorkflowService:
         ai=await self.ai.summarize(business.name,lead); self.db.add(AIOutput(business_id=business.id,lead_id=lead.id,output_type=AIOutputType.LEAD_SUMMARY,model=settings.DEEPSEEK_MODEL,structured_output=ai)); self.db.add(Message(business_id=business.id,lead_id=lead.id,direction=MessageDirection.INTERNAL,channel=MessageChannel.SYSTEM,message_type=MessageType.AI_DRAFT,subject='AI suggested reply',content=ai.get('suggested_reply','')))
         if lead.customer_email: await self.email.send(lead.customer_email,f'Thanks for contacting {business.name}',f'<p>Hi {lead.customer_name}, thanks for contacting {business.name}. We received your request.</p>',business.id,lead.id)
         if business.contact_email: await self.email.send(business.contact_email,f'New lead: {lead.customer_name}',f'<p>New lead for {business.name}: {lead.message or lead.service_needed}</p>',business.id,lead.id)
-        self.db.add(AuditLog(business_id=business.id,action='lead.created',entity_type='lead',entity_id=str(lead.id),details={'source':'public_form'})); await self.db.flush(); return lead,form,business
+        self.db.add(AuditLog(business_id=business.id,action='lead.created',entity_type='lead',entity_id=str(lead.id),details={'source':'public_form'}))
+        self.db.add(FollowUp(business_id=business.id,lead_id=lead.id,scheduled_at=datetime.now(timezone.utc)+timedelta(hours=24),subject=f'Follow-up: {lead.customer_name}',content=f'Hi {lead.customer_name}, just following up on your request for {lead.service_needed or "our services"}. Are you still interested?'))
+        await self.db.flush(); return lead,form,business

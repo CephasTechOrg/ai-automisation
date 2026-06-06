@@ -9,13 +9,16 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.errors import NotFoundError
 from app.core.security import AuthUser, require_super_admin
-from app.models.domain import Business, BusinessMember, Profile, Lead
+from app.models.domain import Business, BusinessMember, Profile, Lead, AuditLog
 from app.models.enums import BusinessStatus
 from app.schemas.common import APIResponse
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessRead
 from app.services.core_services import BusinessService
 
 router = APIRouter()
+
+async def _log(db: AsyncSession, actor_id: UUID, action: str, business_id: UUID | None = None, details: dict | None = None):
+    db.add(AuditLog(actor_user_id=actor_id, business_id=business_id, action=action, details=details or {}))
 
 LOGO_BUCKET = 'business-logos'
 ALLOWED_MIME = {'image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'}
@@ -70,7 +73,9 @@ async def set_business_status(
     business = await db.get(Business, business_id)
     if not business:
         raise NotFoundError('Business not found')
+    old_status = business.status
     business.status = BusinessStatus(status_val)
+    await _log(db, user.id, 'business_status_changed', business_id, {'from': str(old_status), 'to': status_val, 'name': business.name})
     await db.commit()
     await db.refresh(business)
     return APIResponse(data=BusinessRead.model_validate(business))
@@ -82,6 +87,7 @@ async def create_business(
     db: AsyncSession = Depends(get_db),
 ):
     business, form = await BusinessService(db).create_business(payload, user.id)
+    await _log(db, user.id, 'business_created', business.id, {'name': business.name, 'owner_email': payload.owner.email})
     await db.commit()
     return APIResponse(data={
         'business': BusinessRead.model_validate(business).model_dump(mode='json'),
@@ -124,8 +130,10 @@ async def update_business(
     business = await db.get(Business, business_id)
     if not business:
         raise NotFoundError('Business not found')
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changed = payload.model_dump(exclude_unset=True)
+    for field, value in changed.items():
         setattr(business, field, value)
+    await _log(db, user.id, 'business_updated', business_id, {'fields': list(changed.keys()), 'name': business.name})
     await db.commit()
     await db.refresh(business)
     return APIResponse(data=BusinessRead.model_validate(business))
@@ -233,4 +241,34 @@ async def resend_invite(
     except Exception as exc:
         return APIResponse(data={'sent': False, 'error': str(exc)})
 
+    await _log(db, user.id, 'invite_resent', business_id, {'email': email, 'business_name': business.name})
+    await db.commit()
     return APIResponse(data={'sent': True, 'email': email})
+
+
+@router.get('/audit-logs', response_model=APIResponse[list[dict]])
+async def audit_logs(
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+):
+    rows = (await db.execute(
+        select(AuditLog, Profile.email)
+        .outerjoin(Profile, AuditLog.actor_user_id == Profile.id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit).offset(offset)
+    )).all()
+    biz_ids = {r.AuditLog.business_id for r in rows if r.AuditLog.business_id}
+    bizzes = {}
+    if biz_ids:
+        biz_rows = (await db.execute(select(Business).where(Business.id.in_(biz_ids)))).scalars().all()
+        bizzes = {b.id: b.name for b in biz_rows}
+    return APIResponse(data=[{
+        'id': str(r.AuditLog.id),
+        'action': r.AuditLog.action,
+        'actor_email': r.email or 'System',
+        'business_name': bizzes.get(r.AuditLog.business_id, '—') if r.AuditLog.business_id else '—',
+        'details': r.AuditLog.details or {},
+        'created_at': r.AuditLog.created_at.isoformat(),
+    } for r in rows])

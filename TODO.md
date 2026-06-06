@@ -79,7 +79,7 @@ Owner:
 
 Admin:
   ✅ GET    /admin/metrics                     platform-wide KPI numbers — DONE
-  GET    /admin/audit-logs                     paginated audit log list
+  ✅ GET    /admin/audit-logs                  paginated audit log list — DONE
   ✅ PATCH  /admin/businesses/{id}/status      pause / archive a business — DONE
 ```
 
@@ -291,7 +291,7 @@ async def set_status(business_id: UUID, payload: BusinessStatusUpdate, ...):
 
 ---
 
-# PHASE 5 — Admin Audit Logs
+# ✅ PHASE 5 — Admin Audit Logs — COMPLETE
 **Goal:** Show real system activity instead of mock AUDIT data.
 
 ## 5A. Backend: Write to audit_logs table

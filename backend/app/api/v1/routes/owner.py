@@ -1,16 +1,21 @@
 from uuid import UUID
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.errors import NotFoundError, ForbiddenError
 from app.core.security import AuthUser, require_owner_or_staff
-from app.models.domain import BusinessMember, Lead, Message, Form, Business, MessageDirection, MessageChannel, MessageType
+from app.models.domain import BusinessMember, Lead, Message, Form, Business, MessageDirection, MessageChannel, MessageType, FollowUp, AIOutput
+from app.models.enums import FollowUpStatus
 from app.schemas.common import APIResponse
 from app.schemas.lead import LeadRead, LeadStatusUpdate, OwnerReplyCreate
-from app.models.domain import AIOutput
 from app.schemas.business import BusinessRead, OwnerBusinessUpdate
+
+class FollowUpUpdate(BaseModel):
+    status: str | None = None
+    scheduled_at: datetime | None = None
 router=APIRouter()
 async def get_membership(db,user_id):
     m=(await db.execute(select(BusinessMember).where(BusinessMember.user_id==user_id,BusinessMember.is_active.is_(True)))).scalar_one_or_none()
@@ -77,6 +82,40 @@ async def owner_metrics(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSe
     counts={r.day:r.cnt for r in rows}
     data=[{'label':(start+timedelta(days=i)).strftime('%b %-d'),'v':counts.get(start+timedelta(days=i),0)} for i in range(14)]
     return APIResponse(data=data)
+@router.get('/followups',response_model=APIResponse[list[dict]])
+async def list_followups(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
+    bid=await business_id(db,user.id)
+    now=datetime.now(timezone.utc)
+    rows=(await db.execute(
+        select(FollowUp,Lead.customer_name,Lead.service_needed,Lead.status.label('lead_status'))
+        .join(Lead,FollowUp.lead_id==Lead.id)
+        .where(FollowUp.business_id==bid)
+        .order_by(FollowUp.scheduled_at.asc())
+    )).all()
+    result=[]
+    for r in rows:
+        fu=r.FollowUp
+        if fu.status==FollowUpStatus.SCHEDULED:
+            if fu.scheduled_at<now: state='overdue' if (now-fu.scheduled_at).total_seconds()>86400 else 'due'
+            else: state='scheduled'
+        else: state=fu.status.value
+        result.append({'id':str(fu.id),'lead_id':str(fu.lead_id),'customer_name':r.customer_name,'service_needed':r.service_needed,'lead_status':r.lead_status,'state':state,'scheduled_at':fu.scheduled_at.isoformat(),'sent_at':fu.sent_at.isoformat() if fu.sent_at else None,'subject':fu.subject,'content':fu.content})
+    return APIResponse(data=result)
+
+@router.patch('/followups/{followup_id}',response_model=APIResponse[dict])
+async def update_followup(followup_id:UUID,payload:FollowUpUpdate,user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
+    bid=await business_id(db,user.id)
+    fu=await db.get(FollowUp,followup_id)
+    if not fu: raise NotFoundError('Follow-up not found')
+    if fu.business_id!=bid: raise ForbiddenError('Wrong business')
+    if payload.status:
+        if payload.status not in [s.value for s in FollowUpStatus]: raise ForbiddenError('Invalid status')
+        fu.status=FollowUpStatus(payload.status)
+        if payload.status=='sent': fu.sent_at=datetime.now(timezone.utc)
+    if payload.scheduled_at: fu.scheduled_at=payload.scheduled_at
+    await db.commit()
+    return APIResponse(data={'id':str(fu.id),'status':fu.status.value,'scheduled_at':fu.scheduled_at.isoformat(),'sent_at':fu.sent_at.isoformat() if fu.sent_at else None})
+
 @router.get('/form',response_model=APIResponse[dict])
 async def owner_form(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
     bid=await business_id(db,user.id)
