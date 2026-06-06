@@ -8,7 +8,7 @@ from app.core.security import AuthUser, require_owner_or_staff
 from app.models.domain import BusinessMember, Lead, Message, Form, Business
 from app.schemas.common import APIResponse
 from app.schemas.lead import LeadRead, LeadStatusUpdate
-from app.schemas.business import BusinessRead
+from app.schemas.business import BusinessRead, OwnerBusinessUpdate
 router=APIRouter()
 async def get_membership(db,user_id):
     m=(await db.execute(select(BusinessMember).where(BusinessMember.user_id==user_id,BusinessMember.is_active.is_(True)))).scalar_one_or_none()
@@ -36,6 +36,15 @@ async def owner_business(user:AuthUser=Depends(require_owner_or_staff),db:AsyncS
     bid=await business_id(db,user.id)
     b=await db.get(Business,bid)
     if not b: raise NotFoundError('Business not found')
+    return APIResponse(data=BusinessRead.model_validate(b))
+@router.patch('/business',response_model=APIResponse[BusinessRead])
+async def update_owner_business(payload:OwnerBusinessUpdate,user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
+    bid=await business_id(db,user.id)
+    b=await db.get(Business,bid)
+    if not b: raise NotFoundError('Business not found')
+    for k,v in payload.model_dump(exclude_unset=True).items():
+        setattr(b,k,v)
+    await db.commit(); await db.refresh(b)
     return APIResponse(data=BusinessRead.model_validate(b))
 @router.get('/form',response_model=APIResponse[dict])
 async def owner_form(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):

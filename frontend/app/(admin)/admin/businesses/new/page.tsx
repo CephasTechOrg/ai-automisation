@@ -56,7 +56,7 @@ export default function AdminCreateBusinessPage() {
     return e
   }
 
-  const formUrl = 'https://leadflowpro.com/f/' + (f.slug || 'your-business')
+  const formUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/forms/${f.slug || 'your-business'}`
 
   const checklist = [
     { t: 'Business Information', d: 'Add your business details', done: !!f.name && !!f.industry },

@@ -17,6 +17,13 @@ class BusinessCreate(BaseModel):
     brand_color: str = '#2563EB'
     owner: OwnerInviteCreate
 
+class OwnerBusinessUpdate(BaseModel):
+    name: str | None = Field(None, min_length=2, max_length=180)
+    contact_email: EmailStr | None = None
+    phone: str | None = None
+    address: str | None = None
+    brand_color: str | None = None
+
 class BusinessUpdate(BaseModel):
     name: str | None = Field(None, min_length=2, max_length=180)
     industry: str | None = None

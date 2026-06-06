@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const token = useApiToken()
   const [formUrl, setFormUrl] = useState<string | null>(null)
   const [formSlug, setFormSlug] = useState<string | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [biz, setBiz] = useState<BizState>({
     name: '', tagline: '', email: '', color: '#2563EB', followup: true,
   })
@@ -21,27 +22,24 @@ export default function SettingsPage() {
     "Hi {{first_name}},\n\nThanks for contacting us. We've received your request and one of our team members will be in touch within 24 hours.\n\nBest regards,\nThe Team"
   )
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [active, setActive] = useState(true)
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop')
 
   useEffect(() => {
     if (!token) return
-    // Fetch the real form slug
     api.get<{ ok: boolean; data: { slug: string } }>('/owner/form', token)
       .then(r => {
         const s = r.data?.slug
-        if (s) {
-          setFormSlug(s)
-          setFormUrl(`${window.location.origin}/forms/${s}`)
-        }
+        if (s) { setFormSlug(s); setFormUrl(`${window.location.origin}/forms/${s}`) }
       })
       .catch(() => {})
 
-    // Fetch real business profile
-    api.get<{ ok: boolean; data: { name: string; contact_email: string; brand_color: string } }>('/owner/business', token)
+    api.get<{ ok: boolean; data: { name: string; contact_email: string; brand_color: string; logo_url: string | null } }>('/owner/business', token)
       .then(r => {
         const d = r.data
         if (d) {
+          setLogoUrl(d.logo_url ?? null)
           setBiz(s => ({
             ...s,
             name: d.name ?? s.name,
@@ -63,6 +61,24 @@ export default function SettingsPage() {
   function setFormActive(v: boolean) {
     setActive(v)
     toast(v ? 'Public form is now live' : 'Public form paused')
+  }
+
+  async function handleSave() {
+    if (!token) return
+    setSaving(true)
+    try {
+      await api.patch('/owner/business', {
+        name: biz.name || undefined,
+        contact_email: biz.email || undefined,
+        brand_color: biz.color || undefined,
+      }, token)
+      setDirty(false)
+      toast('Changes saved')
+    } catch {
+      toast('Failed to save changes')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const insertFields = ['{{first_name}}', '{{business_name}}', '{{service_needed}}', '{{preferred_time}}'].map(v => ({
@@ -90,14 +106,17 @@ export default function SettingsPage() {
             <div className="fm-profile">
               <div>
                 <label className="label" style={{ marginBottom: 7, display: 'block' }}>Business Logo</label>
-                <div style={{ width: '100%', aspectRatio: '1.4', border: '1px solid var(--border)', borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, background: 'var(--muted-bg-2)' }}>
-                  <Icon name="home2" size={30} style={{ color: 'var(--navy)' }} />
-                  <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--navy)' }}>{biz.name.slice(0, 4).toUpperCase() || 'BIZ'}</div>
+                <div style={{ width: '100%', aspectRatio: '1.4', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--muted-bg-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {logoUrl ? (
+                    <img src={logoUrl} alt={biz.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <Icon name="home2" size={30} style={{ color: 'var(--navy)' }} />
+                      <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', color: 'var(--navy)' }}>{biz.name.slice(0, 4).toUpperCase() || 'BIZ'}</div>
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-                  <button className="btn btn-secondary btn-sm">Change Logo</button>
-                  <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }}>Remove</button>
-                </div>
+                <p className="helper" style={{ marginTop: 8 }}>To update your logo, go to Admin → Edit Business.</p>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -231,8 +250,11 @@ export default function SettingsPage() {
             : 'All changes saved'}
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-secondary" onClick={() => { setDirty(false); toast('Changes discarded') }}>Discard Changes</button>
-          <button className="btn btn-primary" onClick={() => { setDirty(false); toast('Changes saved') }}>Save Changes</button>
+          <button className="btn btn-secondary" onClick={() => { setDirty(false); toast('Changes discarded') }} disabled={saving}>Discard Changes</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={!dirty || saving}>
+            {saving && <span className="spinner" />}
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
         </div>
       </div>
     </div>

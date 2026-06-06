@@ -1,536 +1,450 @@
-# TODO.md — Backend Completion Tracker
+# LeadFlow Pro — Implementation Roadmap
 
-Project: LeadFlow Pro / AI Lead Automation Platform  
-Stack: Next.js App Router, Supabase Auth, Supabase PostgreSQL, Supabase Storage, Resend, DeepSeek AI  
-Focus: Backend foundation, data quality, tenant isolation, automation reliability, and production readiness
-
----
-
-## Status Legend
-
-- `[x]` Completed in the current backend starter foundation
-- `[~]` Partially completed; foundation exists but needs more implementation
-- `[ ]` Still needs to be built
-- `~~Canceled / Deferred~~` Not part of the MVP right now
+**Stack:** Next.js App Router · FastAPI · Supabase Auth + PostgreSQL + Storage · Resend · DeepSeek  
+**Last updated:** 2026-06-05  
+**Rule:** Every page must pull from a real API endpoint before it is considered done. No mock data in production UI.
 
 ---
 
-# 1. Core Backend Foundation
+## How to read this file
 
-- [x] Create Next.js backend starter structure using App Router API routes
-- [x] Add clean backend folder organization
-- [x] Add service-layer architecture
-- [x] Add reusable API response helpers
-- [x] Add reusable error handling foundation
-- [x] Add environment variable example file
-- [x] Add health check endpoint
-- [x] Add backend README/setup guidance
-- [x] Add Supabase client helpers
-- [x] Add Supabase server-side auth foundation
-- [x] Add Supabase admin client foundation for privileged server-only operations
-- [x] Keep secret keys server-side only
-- [x] Separate public routes, owner dashboard routes, and admin routes
+Each phase is a self-contained unit of work. Complete one phase fully before starting the next.  
+Each task shows: what currently exists → what needs to change → which backend endpoint is needed.
 
 ---
 
-# 2. Multi-Tenant System Foundation
+## Current Honest State: Page by Page
 
-- [x] Define `business_id` as the tenant boundary
-- [x] Create database foundation around businesses, users, members, forms, leads, messages, follow-ups, emails, AI outputs, and audit logs
-- [x] Connect leads to `business_id`
-- [x] Connect forms to `business_id`
-- [x] Connect messages to `business_id`
-- [x] Connect follow-ups to `business_id`
-- [x] Connect audit logs to `business_id`
-- [x] Add business slug strategy for reusable public form links
-- [x] Add admin-created business onboarding flow foundation
-- [x] Add owner-to-business relationship using `business_members`
-- [~] Support multiple owners/staff per business
-- [ ] Add staff invitation flow
-- [ ] Add business-level permissions beyond owner/admin
-- [ ] Add business switching for users who manage multiple businesses
+### Pages that are CLEAN (real data, no mocks)
+| Page | Route | Status |
+|---|---|---|
+| Admin — Business List | `/admin/businesses` | ✅ Real |
+| Admin — Create Business | `/admin/businesses/new` | ✅ Real |
+| Admin — Edit Business | `/admin/businesses/[id]/edit` | ✅ Real |
+| Owner — Leads List | `/dashboard/leads` | ✅ Real |
+| Owner — Form Link | `/dashboard/form-link` | ✅ Real |
+| Owner — Settings | `/dashboard/settings` | ✅ Real (save wired) |
+| Owner — Dashboard Overview | `/dashboard` | ✅ Mostly real (chart is mock) |
+| Public Form | `/forms/[slug]` | ✅ Real (services list is generic) |
 
----
+### Pages that are DIRTY (mock data, needs cleaning)
+| Page | Route | What is mock |
+|---|---|---|
+| Admin — Overview | `/admin` | Everything: KPI numbers, businesses list, activity feed, chart |
+| Admin — Audit Logs | `/admin/audit` | Everything: AUDIT from mock.ts |
+| Owner — Messages | `/dashboard/messages` | Everything: CONVERSATIONS from mock.ts |
+| Owner — Follow-ups | `/dashboard/follow-ups` | Everything: FOLLOWUPS from mock.ts |
+| Owner — Dashboard chart | `/dashboard` | LEAD_VOLUME from mock.ts |
 
-# 3. Supabase Authentication
-
-- [x] Use Supabase Auth as the identity provider
-- [x] Add profile table concept linked to Supabase Auth users
-- [x] Add role system foundation: `super_admin`, `business_owner`, `staff`
-- [x] Add admin-only route protection foundation
-- [x] Add owner dashboard route protection foundation
-- [x] Add backend helper to get authenticated user
-- [x] Add backend helper to check admin role
-- [x] Add backend helper to check business membership
-- [~] Owner invitation flow foundation
-- [ ] Implement full Supabase invite email flow in live project
-- [ ] Implement login callback handling with production redirect URLs
-- [ ] Implement password reset flow
-- [ ] Implement magic-link login flow
-- [ ] Add session refresh testing
-- [ ] Add account deactivation handling
-- [ ] Add staff role login behavior
+### Pages that DO NOT EXIST YET
+| Page | Route | What it needs |
+|---|---|---|
+| Lead Detail | `/dashboard/leads/[id]` | Full lead info, AI summary, message thread, send reply |
 
 ---
 
-# 4. Database Schema
+## Backend Endpoints: What Exists vs What's Missing
 
-- [x] Create initial SQL migration foundation
-- [x] Add `profiles` table
-- [x] Add `businesses` table
-- [x] Add `business_members` table
-- [x] Add `forms` table
-- [x] Add `form_fields` table foundation
-- [x] Add `leads` table
-- [x] Add `messages` table
-- [x] Add `follow_ups` table
-- [x] Add `email_events` table
-- [x] Add `ai_outputs` table
-- [x] Add `audit_logs` table
-- [x] Add timestamps
-- [x] Add status enums/foundations
-- [x] Add indexes for important query paths
-- [~] Add complete foreign key constraints
-- [~] Add complete check constraints
-- [ ] Add database triggers for `updated_at`
-- [ ] Add database views for dashboard metrics
-- [ ] Add database functions for tenant checks
-- [ ] Add seed data for realistic testing
-- [ ] Add migration rollback strategy
-- [ ] Add schema versioning notes
+### Existing endpoints
+```
+Admin:
+  POST   /admin/businesses                     create business + invite
+  GET    /admin/businesses                     list all businesses
+  GET    /admin/businesses/{id}                single business
+  PATCH  /admin/businesses/{id}                update business
+  POST   /admin/businesses/{id}/logo           upload logo
+  POST   /admin/businesses/{id}/resend-invite  resend owner invite
 
----
+Owner:
+  GET    /owner/leads                          list leads
+  PATCH  /owner/leads/{id}/status             update lead status
+  GET    /owner/leads/{id}/messages            get messages for a lead
+  GET    /owner/business                       owner's business profile
+  PATCH  /owner/business                       update business profile
+  GET    /owner/form                           active form slug
 
-# 5. Row Level Security and Data Protection
+Public:
+  GET    /public/forms/{slug}                  load form config
+  POST   /public/forms/{slug}/submit           submit lead
+```
 
-- [x] Enable RLS-ready design
-- [x] Design tenant isolation around `business_id`
-- [x] Add RLS policy foundation
-- [x] Admin can access all businesses conceptually
-- [x] Owner can access only businesses they belong to conceptually
-- [x] Public users can submit forms without logging in conceptually
-- [~] Complete RLS policies for all tables
-- [ ] Test RLS policies against a real Supabase project
-- [ ] Add RLS policies for Supabase Storage
-- [ ] Add RLS tests for owner isolation
-- [ ] Add RLS tests for admin access
-- [ ] Add RLS tests for public form submission
-- [ ] Add security test cases for cross-business data leakage
-- [ ] Add audit log events for sensitive reads/writes
+### Missing endpoints (need to be built)
+```
+Owner:
+  GET    /owner/leads/{id}                     single lead detail + AI summary
+  POST   /owner/leads/{id}/messages            send a reply to a lead
+  GET    /owner/metrics                        lead volume grouped by day (chart data)
+  GET    /owner/followups                      list follow-ups for business
+  PATCH  /owner/followups/{id}                 mark sent / reschedule / cancel
+
+Admin:
+  GET    /admin/metrics                        platform-wide KPI numbers
+  GET    /admin/audit-logs                     paginated audit log list
+  PATCH  /admin/businesses/{id}/status         pause / archive a business
+```
 
 ---
 
-# 6. Admin Backend
+---
 
-- [x] Add admin businesses route foundation
-- [x] Add create business API foundation
-- [x] Add business slug generation logic
-- [x] Add owner invite/onboarding concept
-- [x] Add audit logging for admin actions foundation
-- [x] Add admin role guard foundation
-- [~] Add full admin business management endpoints
-- [ ] Implement list businesses with pagination
-- [ ] Implement search businesses
-- [ ] Implement filter businesses by status/industry/plan
-- [ ] Implement get single business details
-- [ ] Implement update business details
-- [ ] Implement pause/deactivate business
-- [ ] Implement resend owner invite
-- [ ] Implement transfer business ownership
-- [ ] Implement admin dashboard metrics endpoint
-- [ ] Implement admin recent activity endpoint
-- [ ] Implement admin audit logs endpoint
-- [ ] Add admin action rate limits
+# PHASE 1 — Lead Detail Page
+**Goal:** Owner can click any lead and see everything about it in one place.  
+**Why first:** This is the most visible gap. It also unlocks messages, AI summary, and status updates in context.
+
+## 1A. Backend: GET /owner/leads/{id}
+
+**File:** `backend/app/api/v1/routes/owner.py`
+
+Add a route that returns the single lead plus its AI summary if one exists:
+
+```python
+@router.get('/leads/{lead_id}', response_model=APIResponse[dict])
+async def lead_detail(lead_id: UUID, user: AuthUser = ..., db: AsyncSession = ...):
+    bid = await business_id(db, user.id)
+    lead = await db.get(Lead, lead_id)
+    if not lead: raise NotFoundError('Lead not found')
+    if lead.business_id != bid: raise ForbiddenError('Wrong business')
+    # fetch AI output for this lead if it exists
+    ai = (await db.execute(
+        select(AIOutput).where(AIOutput.lead_id == lead_id)
+    )).scalars().first()
+    return APIResponse(data={
+        'lead': LeadRead.model_validate(lead).model_dump(mode='json'),
+        'ai': {
+            'summary': ai.summary,
+            'intent': ai.intent,
+            'urgency': ai.urgency,
+            'suggested_reply': ai.suggested_reply,
+            'next_step': ai.next_step,
+        } if ai else None
+    })
+```
+
+Check what columns AIOutput actually has before writing this.
+
+## 1B. Backend: POST /owner/leads/{id}/messages
+
+**File:** `backend/app/api/v1/routes/owner.py`
+
+Add a route that saves an owner reply and returns the saved message:
+
+```python
+@router.post('/leads/{lead_id}/messages', response_model=APIResponse[dict])
+async def send_reply(lead_id: UUID, payload: OwnerReplyCreate, user: AuthUser = ..., db: AsyncSession = ...):
+    bid = await business_id(db, user.id)
+    lead = await db.get(Lead, lead_id)
+    if not lead: raise NotFoundError('Lead not found')
+    if lead.business_id != bid: raise ForbiddenError('Wrong business')
+    msg = Message(
+        lead_id=lead_id,
+        business_id=bid,
+        message_type='email',
+        direction='outbound',
+        content=payload.content,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return APIResponse(data={'id': str(msg.id), 'content': msg.content, 'created_at': msg.created_at.isoformat()})
+```
+
+Add `OwnerReplyCreate` schema: `content: str = Field(min_length=1, max_length=5000)`.
+
+## 1C. Frontend: /dashboard/leads/[id]/page.tsx
+
+**Create new file:** `frontend/app/(owner)/dashboard/leads/[id]/page.tsx`
+
+This page has three sections:
+
+**Left column — Lead Info**
+- Customer name, email, phone, service needed, preferred time, message (from lead)
+- Status badge + dropdown to change status (calls PATCH /owner/leads/{id}/status)
+- Created date / source
+
+**Center column — Messages Thread**
+- Fetch `GET /owner/leads/{id}/messages` on load
+- Render messages: customer = left bubble, owner/system = right bubble
+- Composer at bottom with Send button → `POST /owner/leads/{id}/messages`
+- Optimistically append the new message to the list on send
+
+**Right column — AI Summary**
+- If `ai` is not null: show summary, intent badge, urgency badge, suggested reply
+- If `ai` is null: show a placeholder "AI summary not yet generated" message
+- "Use Suggestion" button pre-fills the composer with `suggested_reply`
+
+**Back button** navigates to `/dashboard/leads`
+
+## 1D. Frontend: Wire "Open Lead" in leads list
+
+**File:** `frontend/app/(owner)/dashboard/leads/page.tsx`
+
+Currently clicking a lead row does nothing. Change the row click or add an "Open" button:
+```tsx
+onClick={() => router.push(`/dashboard/leads/${lead.id}`)}
+```
 
 ---
 
-# 7. Owner Dashboard Backend
+# PHASE 2 — Clean the Messages Page
+**Goal:** Replace 100% mock data with real API. Reframe the page as "leads with messages" rather than a standalone chat inbox.  
+**Why this approach:** The backend stores messages per-lead, not as standalone conversations. The current mock CONVERSATIONS structure doesn't match reality.
 
-- [x] Add owner dashboard business route foundation
-- [x] Add owner leads route foundation
-- [x] Add business membership guard foundation
-- [x] Ensure dashboard data is loaded from authenticated user membership, not from frontend trust
-- [~] Add lead listing endpoint
-- [~] Add lead status update foundation
-- [ ] Implement dashboard overview metrics endpoint
-- [ ] Implement recent leads endpoint
-- [ ] Implement lead volume chart endpoint
-- [ ] Implement AI insights endpoint
-- [ ] Implement get single lead detail endpoint
-- [ ] Implement update lead status endpoint fully
-- [ ] Implement add note to lead
-- [ ] Implement assign lead to owner/staff
-- [ ] Implement owner settings endpoint
-- [ ] Implement form management endpoint
-- [ ] Implement public form link copy tracking
-- [ ] Implement owner activity timeline endpoint
+## 2A. Reframe the Messages page
 
----
+**File:** `frontend/app/(owner)/dashboard/messages/page.tsx`
 
-# 8. Public Form Backend
+**Current:** Hardcoded CONVERSATIONS mock array, fake send behavior.  
+**New approach:**
+- On load: fetch `GET /owner/leads` filtered to leads that have at least one message
+- Left panel shows these leads as "conversations" (name, last message preview, time)
+- Clicking a lead loads `GET /owner/leads/{id}/messages` into the right thread panel
+- Send button posts to `POST /owner/leads/{id}/messages`
+- "Open Lead" button navigates to `/dashboard/leads/{id}`
 
-- [x] Add public form route foundation
-- [x] Add dynamic form loading by slug foundation
-- [x] Add public lead submission foundation
-- [x] Connect submitted lead to `business_id`
-- [x] Add lead validation foundation
-- [x] Add business lookup by slug
-- [x] Add AI summary call after lead submission foundation
-- [x] Add Resend email notification foundation
-- [~] Add custom form fields foundation
-- [ ] Implement full custom field validation
-- [ ] Implement spam protection
-- [ ] Implement CAPTCHA or Turnstile
-- [ ] Implement public form rate limiting by IP
-- [ ] Implement duplicate lead detection
-- [ ] Implement submit success email
-- [ ] Implement form inactive/paused state
-- [ ] Implement business paused state
-- [ ] Implement public form analytics events
-- [ ] Implement file attachment support if needed
+This reuses the existing lead list endpoint. No new backend endpoint needed — the messages and send endpoints are built in Phase 1.
+
+## 2B. Remove mock imports
+
+Remove: `import { CONVERSATIONS } from '@/lib/data/mock'`  
+State becomes:
+- `leads: LeadRead[]` — fetched from API
+- `selectedLeadId: string | null`
+- `messages: MessageItem[]` — fetched when lead is selected
+- `draft: string`
+- `sending: boolean`
 
 ---
 
-# 9. Messages and Communication Backend
+# PHASE 3 — Owner Dashboard Chart (Lead Volume)
+**Goal:** Replace mock LEAD_VOLUME with real per-day lead counts.
 
-## Recommended Message Logic
+## 3A. Backend: GET /owner/metrics
 
-The system should support both automation and human review.
+**File:** `backend/app/api/v1/routes/owner.py`
 
-Automatic:
-- Send a safe acknowledgement email immediately after form submission.
-- Optionally send scheduled follow-up emails when enabled.
-- Store all automated messages in the `messages` table.
+Query leads grouped by day for the last 30 days:
 
-Owner-controlled:
-- Owner can see all messages connected to each lead.
-- AI can draft suggested replies.
-- Owner can edit, approve, copy, or send the suggested reply.
-- Owner can manually send follow-up messages.
+```python
+@router.get('/metrics', response_model=APIResponse[dict])
+async def owner_metrics(user: AuthUser = ..., db: AsyncSession = ...):
+    bid = await business_id(db, user.id)
+    # SQLAlchemy: group by date(created_at), count leads
+    # return list of {label: 'Jun 1', v: 4}
+```
 
-- [x] Add `messages` table foundation
-- [x] Add direction concept: inbound/outbound
-- [x] Add message channel concept: email, form, system
-- [x] Add email event tracking foundation
-- [~] Add auto-reply email service foundation
-- [~] Add owner notification email foundation
-- [ ] Implement full message thread endpoint
-- [ ] Implement owner manual reply endpoint
-- [ ] Implement AI suggested reply endpoint
-- [ ] Implement send suggested reply endpoint
-- [ ] Implement message status tracking: queued, sent, failed, opened, clicked
-- [ ] Implement inbound email parsing later
-- [ ] Implement reply-to lead email routing later
-- [ ] Implement message timeline view data endpoint
-- [ ] Implement email failure retry
-- [ ] Implement unsubscribe/compliance footer for marketing-style emails
-- [ ] Implement email template variables
-- [ ] Implement owner notification preferences
+Use SQLAlchemy `func.date()` and `func.count()`. Return last 14 days of data.
 
-~~Canceled / Deferred for MVP: full two-way live chat~~  
-~~Canceled / Deferred for MVP: Instagram DM integration~~  
-~~Canceled / Deferred for MVP: WhatsApp Business API integration~~  
-~~Canceled / Deferred for MVP: SMS messaging with Twilio~~
+## 3B. Frontend: Wire chart in dashboard/page.tsx
+
+**File:** `frontend/app/(owner)/dashboard/page.tsx`
+
+- Remove `import { LEAD_VOLUME } from '@/lib/data/mock'`
+- Add `const [chartData, setChartData] = useState<{label:string;v:number}[]>([])`
+- In the same `useEffect` that fetches leads, also fetch `GET /owner/metrics`
+- Pass `chartData` to `<AreaChart data={chartData} />`
+- While loading, show empty/skeleton state
 
 ---
 
-# 10. AI Automation Backend
+# PHASE 4 — Admin Overview Page
+**Goal:** Replace 100% mock KPIs, business list, and activity feed with real data.
 
-- [x] Add DeepSeek AI service foundation
-- [x] Add structured lead summary prompt foundation
-- [x] Add AI output storage table foundation
-- [x] Add AI summary fields concept: summary, urgency, intent, suggested reply, next step
-- [~] Add AI call after public form submission
-- [ ] Implement robust JSON parsing for AI responses
-- [ ] Add AI timeout handling
-- [ ] Add AI retry strategy
-- [ ] Add fallback summary if AI fails
-- [ ] Add prompt versioning
-- [ ] Add AI output cost/usage tracking
-- [ ] Add AI safety rules for customer replies
-- [ ] Add owner approval mode for AI replies
-- [ ] Add auto-send toggle per business
-- [ ] Add AI insights endpoint for dashboard
-- [ ] Add lead scoring algorithm
-- [ ] Add urgency classifier
-- [ ] Add intent classifier
-- [ ] Add suggested next best action logic
-- [ ] Add model provider abstraction to switch from DeepSeek to another model later
+## 4A. Backend: GET /admin/metrics
 
----
+**File:** `backend/app/api/v1/routes/admin.py`
 
-# 11. Follow-Up Automation Backend
+Return platform-wide numbers in one call:
+```json
+{
+  "total_businesses": 12,
+  "active_businesses": 9,
+  "total_leads_today": 4,
+  "total_leads_this_week": 28,
+  "platform_growth": [{"label": "Jun 1", "v": 3}, ...]
+}
+```
 
-- [x] Add follow-ups table foundation
-- [x] Add follow-up concept tied to business and lead
-- [~] Add scheduled follow-up foundation
-- [ ] Implement follow-up creation after lead submission
-- [ ] Implement follow-up scheduler
-- [ ] Implement cron job or background job route
-- [ ] Implement send due follow-ups
-- [ ] Implement follow-up retry on failure
-- [ ] Implement cancel follow-up when lead is booked/lost
-- [ ] Implement reschedule follow-up
-- [ ] Implement mark follow-up complete
-- [ ] Implement follow-up analytics
-- [ ] Implement business-level follow-up settings
-- [ ] Implement owner manual approval before follow-up if enabled
+Query `Business`, `Lead` tables with appropriate date filters.
 
----
+## 4B. Backend: PATCH /admin/businesses/{id}/status
 
-# 12. Email Backend with Resend
+**File:** `backend/app/api/v1/routes/admin.py`
 
-- [x] Add Resend client foundation
-- [x] Keep Resend API key server-side
-- [x] Add owner new-lead notification email foundation
-- [x] Add customer auto-reply email foundation
-- [x] Add email event table foundation
-- [~] Add email sending service layer
-- [ ] Verify sending domain in Resend
-- [ ] Implement production email templates
-- [ ] Implement branded business email templates
-- [ ] Implement template variables
-- [ ] Implement email status tracking
-- [ ] Implement failed email retry
-- [ ] Implement admin email logs
-- [ ] Implement email rate limiting
-- [ ] Add support for different sender names per business
-- [ ] Add reply-to configuration
-- [ ] Add resend invite email endpoint
-- [ ] Add follow-up email template
+Currently the Pause/Archive button only shows a toast. Add a proper status update:
+```python
+@router.patch('/businesses/{business_id}/status', response_model=APIResponse[BusinessRead])
+async def set_status(business_id: UUID, payload: BusinessStatusUpdate, ...):
+    # payload: { status: 'paused' | 'archived' | 'active' }
+```
+
+## 4C. Frontend: Admin Overview page
+
+**File:** `frontend/app/(admin)/admin/page.tsx`
+
+**Current:** BUSINESSES, ACTIVITY, PLATFORM_GROWTH all from mock.ts. KPI values hardcoded.  
+**New:**
+- Remove all mock imports
+- Fetch `GET /admin/metrics` → populate KPI cards and chart
+- Fetch `GET /admin/businesses?limit=5` → show recent businesses list (endpoint already exists)
+- Wire Pause Business menu action to `PATCH /admin/businesses/{id}/status`
 
 ---
 
-# 13. Storage Backend
+# PHASE 5 — Admin Audit Logs
+**Goal:** Show real system activity instead of mock AUDIT data.
 
-- [x] Add Supabase Storage concept for business assets
-- [x] Define bucket idea: `business-assets`
-- [x] Define path strategy: `businesses/{business_id}/logo.png`
-- [~] Add logo upload concept
-- [ ] Create actual Supabase bucket
-- [ ] Add storage upload endpoint
-- [ ] Add storage delete/replace endpoint
-- [ ] Add file size validation
-- [ ] Add file type validation
-- [ ] Add public/private bucket decision
-- [ ] Add storage RLS policies
-- [ ] Add business logo update flow
-- [ ] Add signed URL support if private assets are used
+## 5A. Backend: Write to audit_logs table
 
----
+**File:** `backend/app/api/v1/routes/admin.py`
 
-# 14. Validation and Data Quality
+Every admin action should write a row. Add a helper and call it in:
+- `POST /admin/businesses` → log `business_created`
+- `POST /admin/businesses/{id}/resend-invite` → log `invite_resent`
+- `PATCH /admin/businesses/{id}` → log `business_updated`
+- `PATCH /admin/businesses/{id}/status` → log `business_status_changed`
 
-- [x] Add Zod validation foundation
-- [x] Add request schema patterns
-- [x] Add slug validation foundation
-- [x] Add email validation foundation
-- [x] Add phone field foundation
-- [~] Add complete schemas for all endpoints
-- [ ] Add custom validation errors
-- [ ] Add normalized phone number handling
-- [ ] Add normalized email lowercase handling
-- [ ] Add sanitized text fields
-- [ ] Add max length limits everywhere
-- [ ] Add form field validation engine
-- [ ] Add duplicate slug handling
-- [ ] Add duplicate owner invite handling
-- [ ] Add duplicate lead detection
-- [ ] Add safe HTML/email escaping
-- [ ] Add strict enum validation for statuses
+```python
+async def log_action(db, admin_id, action, business_id=None, meta=None):
+    db.add(AuditLog(
+        actor_id=admin_id,
+        action=action,
+        business_id=business_id,
+        meta=meta or {}
+    ))
+```
 
----
+## 5B. Backend: GET /admin/audit-logs
 
-# 15. Rate Limiting and Abuse Protection
+Return paginated audit logs with actor name, action, business name, timestamp:
+```python
+@router.get('/audit-logs', response_model=APIResponse[list[dict]])
+async def audit_logs(limit: int = 50, offset: int = 0, ...):
+    ...
+```
 
-- [x] Add rate limiting foundation
-- [~] Add public form submission rate limit concept
-- [ ] Implement persistent rate limiter
-- [ ] Add IP-based rate limit for public forms
-- [ ] Add user-based rate limit for dashboard actions
-- [ ] Add admin action rate limit
-- [ ] Add AI generation rate limit
-- [ ] Add email sending rate limit
-- [ ] Add spam detection
-- [ ] Add bot protection
-- [ ] Add request logging for abuse monitoring
+## 5C. Frontend: Admin Audit page
+
+**File:** `frontend/app/(admin)/admin/audit/page.tsx`
+
+- Remove `import { AUDIT } from '@/lib/data/mock'`
+- Fetch `GET /admin/audit-logs` with pagination
+- Filter/search client-side on returned data (or add query params to backend)
 
 ---
 
-# 16. Audit Logging
+# PHASE 6 — Follow-ups
+**Goal:** Owner can see scheduled follow-ups, send them, and reschedule.  
+**Note:** This is the heaviest phase — requires the most new backend work.
 
-- [x] Add audit logs table foundation
-- [x] Add audit logging concept
-- [x] Add audit logs for admin action foundation
-- [~] Add reusable audit log service
-- [ ] Log business created
-- [ ] Log business updated
-- [ ] Log owner invited
-- [ ] Log invite resent
-- [ ] Log business paused/deactivated
-- [ ] Log lead status changed
-- [ ] Log email sent
-- [ ] Log AI summary generated
-- [ ] Log settings changed
-- [ ] Add audit logs API endpoint
-- [ ] Add filters for audit logs
-- [ ] Add retention policy
+## 6A. Backend: Follow-up endpoints
 
----
+**File:** `backend/app/api/v1/routes/owner.py`
 
-# 17. API Design
+```
+GET    /owner/followups              list follow-ups (filter by state: due/scheduled/overdue/sent)
+PATCH  /owner/followups/{id}         update state (sent, cancelled, rescheduled)
+POST   /owner/followups              manually create a follow-up for a lead
+```
 
-- [x] Add API route foundation
-- [x] Add clean route grouping
-- [x] Add admin route pattern
-- [x] Add dashboard route pattern
-- [x] Add public form route pattern
-- [x] Add health route
-- [~] Add REST endpoint coverage
-- [ ] Implement full admin API coverage
-- [ ] Implement full owner dashboard API coverage
-- [ ] Implement full form management API coverage
-- [ ] Implement full message API coverage
-- [ ] Implement full follow-up API coverage
-- [ ] Add OpenAPI-style documentation
-- [ ] Add request/response examples
-- [ ] Add error code reference
-- [ ] Add pagination helpers
-- [ ] Add sorting helpers
-- [ ] Add filtering helpers
+Also wire follow-up auto-creation in `LeadWorkflowService.submit()` after a lead is saved:
+- Create a follow-up scheduled for +24 hours by default
+
+## 6B. Frontend: Follow-ups page
+
+**File:** `frontend/app/(owner)/dashboard/follow-ups/page.tsx`
+
+- Remove `import { FOLLOWUPS } from '@/lib/data/mock'`
+- Fetch `GET /owner/followups` on load, filter by tab (due/scheduled/overdue/sent)
+- "Send" button → `PATCH /owner/followups/{id}` with `{ state: 'sent' }`
+- "Reschedule" → show a date picker → `PATCH /owner/followups/{id}` with new `scheduled_at`
+- KPI counts come from the API response counts, not hardcoded
 
 ---
 
-# 18. Testing
+# PHASE 7 — Verify AI + Email are Actually Working
+**Goal:** Confirm the automation runs end-to-end after a form submission. This is not UI work — it's operational verification.
 
-- [ ] Add unit tests for utility functions
-- [ ] Add unit tests for slug generation
-- [ ] Add unit tests for validation schemas
-- [ ] Add unit tests for tenant guard logic
-- [ ] Add integration tests for public form submission
-- [ ] Add integration tests for owner dashboard access
-- [ ] Add integration tests for admin business creation
-- [ ] Add integration tests for RLS policies
-- [ ] Add mocked tests for Resend
-- [ ] Add mocked tests for DeepSeek
-- [ ] Add end-to-end test for full flow:
-  - admin creates business
-  - owner invited
-  - customer submits form
-  - lead appears in dashboard
-  - emails are sent
-  - AI summary is created
+## 7A. Verify DeepSeek integration
 
----
+- Submit a test lead through the public form
+- Check the `ai_outputs` table in Supabase: did a row get created?
+- If not: check `LeadWorkflowService.submit()` — is the AI call being awaited correctly? Are DeepSeek env vars set?
+- If yes: check what columns are populated (summary, intent, urgency, suggested_reply, next_step)
 
-# 19. Observability and Production Readiness
+## 7B. Verify Resend email delivery
 
-- [ ] Add structured logging
-- [ ] Add request IDs
-- [ ] Add error tracking
-- [ ] Add admin system health endpoint
-- [ ] Add email delivery monitoring
-- [ ] Add AI failure monitoring
-- [ ] Add database performance monitoring
-- [ ] Add slow query checks
-- [ ] Add usage metrics
-- [ ] Add plan/limit monitoring
-- [ ] Add backup strategy
-- [ ] Add environment-specific config
-- [ ] Add deployment checklist
-- [ ] Add production security checklist
+- Submit a test lead
+- Check Resend dashboard: did an email attempt appear?
+- If not: check env var `RESEND_API_KEY` and the sending domain is verified in Resend
+- Owner notification email: goes to the business `contact_email`
+- Customer auto-reply: goes to `customer_email` submitted in the form
+
+## 7C. Update Supabase auth email templates
+
+In the Supabase dashboard → Auth → Email Templates:
+- Invite email: change "Supabase" to "LeadFlow Pro"
+- Magic link email: same
+- Set the redirect URL in invite to `{your-domain}/auth/callback`
 
 ---
 
-# 20. Billing and Plans
+# PHASE 8 — Public Form: Per-Business Services
+**Goal:** The "Service Needed" dropdown shows services relevant to each business, not a generic list.
 
-~~Canceled / Deferred for MVP: Stripe billing~~  
-~~Canceled / Deferred for MVP: automated subscription enforcement~~  
-~~Canceled / Deferred for MVP: usage-based billing~~  
-~~Canceled / Deferred for MVP: invoices and payment receipts~~
+## 8A. Backend: Add services field to Form model
 
-Future tasks:
-- [ ] Add plans table
-- [ ] Add usage limits per business
-- [ ] Add lead usage tracking
-- [ ] Add AI usage tracking
-- [ ] Add email usage tracking
-- [ ] Add billing status to admin portal
-- [ ] Add Stripe integration later
+Options (pick one):
+- Simple: add a `services: list[str]` JSONB column to the `forms` table
+- Proper: add a `form_services` table with `form_id`, `name`, `order`
 
----
+Recommend the JSONB column for MVP speed.
 
-# 21. Integrations
+Migration needed: `ALTER TABLE forms ADD COLUMN services JSONB DEFAULT '[]'`
 
-~~Canceled / Deferred for MVP: HubSpot integration~~  
-~~Canceled / Deferred for MVP: Salesforce integration~~  
-~~Canceled / Deferred for MVP: Zapier integration~~  
-~~Canceled / Deferred for MVP: Google Calendar integration~~  
-~~Canceled / Deferred for MVP: WhatsApp Business API~~  
-~~Canceled / Deferred for MVP: Instagram/Facebook DM integration~~
+## 8B. Backend: Return services in GET /public/forms/{slug}
 
-Future tasks:
-- [ ] Add webhook foundation
-- [ ] Add outbound webhook events
-- [ ] Add inbound webhook receiver
-- [ ] Add integration settings table
-- [ ] Add API key management for businesses
+Add `services: list[str]` to `PublicFormRead` schema. Return from the form config endpoint.
+
+## 8C. Admin: Let admin set services when editing a business
+
+In the Edit Business page, add a tag/multi-input field for services. Save via `PATCH /admin/businesses/{id}` → updates the form's services field.
+
+## 8D. Frontend: Public form uses real services list
+
+**File:** `frontend/app/forms/[slug]/page.tsx`
+
+- Remove `import { SERVICES } from '@/lib/data/mock'`
+- Use `config.services` from the API response as the Select options
+- Fall back to a generic list only if `config.services` is empty
 
 ---
 
-# 22. Backend Build Priority From Here
+# Clean-up Checklist (after all phases done)
 
-## Phase 1 — Make MVP Actually Work
-
-- [ ] Connect starter code to real Supabase project
-- [ ] Run SQL migrations
-- [ ] Create first super admin profile
-- [ ] Create business from admin route
-- [ ] Generate form link
-- [ ] Submit public form
-- [ ] Save lead to Supabase
-- [ ] Generate AI summary with DeepSeek
-- [ ] Send owner notification with Resend
-- [ ] Send customer auto-reply with Resend
-- [ ] Owner logs in and views lead
-
-## Phase 2 — Make It Safe
-
-- [ ] Complete RLS policies
-- [ ] Test tenant isolation
-- [ ] Add rate limiting
-- [ ] Add spam protection
-- [ ] Add audit logs everywhere
-- [ ] Add validation on every route
-- [ ] Add error handling and fallbacks
-
-## Phase 3 — Make It Useful
-
-- [ ] Add lead status updates
-- [ ] Add AI suggested replies
-- [ ] Add manual owner reply
-- [ ] Add follow-up scheduling
-- [ ] Add dashboard metrics
-- [ ] Add form settings
-- [ ] Add owner settings
-
-## Phase 4 — Make It Production-Ready
-
-- [ ] Add tests
-- [ ] Add observability
-- [ ] Add deployment checklist
-- [ ] Add usage limits
-- [ ] Add billing later
-- [ ] Add integrations later
+- [ ] Delete or gut `frontend/lib/data/mock.ts` — any remaining imports are a bug
+- [ ] Confirm no page imports from `mock.ts`
+- [ ] Confirm TypeScript passes with zero errors
+- [ ] Test the full flow end-to-end:
+  1. Admin creates a business → owner gets invite email
+  2. Owner clicks invite link → lands on /auth/set-password → sets password → logs in
+  3. Owner copies form link from dashboard
+  4. Customer opens form link → fills in form → submits
+  5. Lead appears in owner's leads list
+  6. Owner clicks lead → sees full detail, AI summary, auto-reply message
+  7. Owner sends a reply from the lead detail page
+  8. Admin opens overview → sees real business count and lead stats
 
 ---
 
-# Final Backend Truth
+# Summary: Phase Order and Rationale
 
-The backend foundation is started, but the system is not complete until the live Supabase project, real RLS policies, real email delivery, real AI calls, and full endpoint coverage are implemented and tested.
-
-The most important rule remains:
-
-`business_id` is the tenant boundary.
-
-Every backend feature must protect that boundary.
+| Phase | What | Why this order |
+|---|---|---|
+| 1 | Lead detail page + send reply | Most visible gap; owner has nowhere to go after seeing a lead |
+| 2 | Clean Messages page | Reuses Phase 1 endpoints; no extra backend work |
+| 3 | Owner dashboard chart | Quick win; one new endpoint, one state swap |
+| 4 | Admin overview + pause business | Admin portal should reflect real state |
+| 5 | Admin audit logs | Safety/accountability; low user impact but builds trust |
+| 6 | Follow-ups | Heaviest backend work; do after the core loop is solid |
+| 7 | Verify AI + email | Operational; can be done anytime but confirms the automation actually runs |
+| 8 | Per-business services | Polish; generic list works fine for MVP |
