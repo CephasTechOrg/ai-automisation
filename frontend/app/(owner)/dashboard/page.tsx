@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Icon, StatCard, Card, AreaChart, Badge, Avatar, CopyLinkBox, useIsMobile } from '@/components/ui'
 import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
-import { LEAD_VOLUME, FORM_URL } from '@/lib/data/mock'
+import { LEAD_VOLUME } from '@/lib/data/mock'
 
 interface LeadRead {
   id: string
@@ -146,16 +146,23 @@ export default function OwnerDashboardPage() {
 }
 
 function FormLinkCard({ router, formSlug }: { router: ReturnType<typeof useRouter>; formSlug: string | null }) {
-  const formUrl = formSlug
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/forms/${formSlug}`
-    : FORM_URL
+  const formUrl = formSlug && typeof window !== 'undefined'
+    ? `${window.location.origin}/forms/${formSlug}`
+    : null
   return (
     <Card>
       <div className="section-title" style={{ fontSize: 16 }}>Your Public Form Link</div>
       <p className="helper" style={{ margin: '5px 0 16px' }}>Share this link to start capturing leads.</p>
-      <CopyLinkBox url={formUrl} />
+      {formUrl ? (
+        <CopyLinkBox url={formUrl} />
+      ) : (
+        <div style={{ height: 40, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="spinner" />
+          <span className="muted" style={{ fontSize: 13 }}>Loading form link…</span>
+        </div>
+      )}
       <button className="btn btn-ghost btn-xs" style={{ marginTop: 12, paddingLeft: 0 }} onClick={() => router.push('/dashboard/form-link')}>
-        Preview Form <Icon name="externalLink" size={14} />
+        View Form Link Page <Icon name="externalLink" size={14} />
       </button>
     </Card>
   )
