@@ -14,7 +14,7 @@ class BusinessCreate(BaseModel):
     phone: str | None = None
     contact_email: EmailStr | None = None
     address: str | None = None
-    brand_color: str = '#2563EB'
+    brand_color: str = Field('#2563EB', pattern=r'^#[0-9a-fA-F]{6}$')
     owner: OwnerInviteCreate
 
 class OwnerBusinessUpdate(BaseModel):
@@ -22,7 +22,7 @@ class OwnerBusinessUpdate(BaseModel):
     contact_email: EmailStr | None = None
     phone: str | None = None
     address: str | None = None
-    brand_color: str | None = None
+    brand_color: str | None = Field(None, pattern=r'^#[0-9a-fA-F]{6}$')
     smart_auto_reply: bool | None = None
     owner_approval_required: bool | None = None
 
@@ -32,7 +32,7 @@ class BusinessUpdate(BaseModel):
     phone: str | None = None
     contact_email: EmailStr | None = None
     address: str | None = None
-    brand_color: str | None = None
+    brand_color: str | None = Field(None, pattern=r'^#[0-9a-fA-F]{6}$')
     status: BusinessStatus | None = None
     smart_auto_reply: bool | None = None
     owner_approval_required: bool | None = None

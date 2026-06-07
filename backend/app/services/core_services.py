@@ -1,4 +1,5 @@
-import re, json, httpx, resend
+import re, json, logging, httpx, resend
+logger = logging.getLogger(__name__)
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, func
@@ -128,6 +129,7 @@ class DeepSeekService:
                     txt = txt.split('```')[1].lstrip('json').strip()
             return json.loads(txt)
         except Exception as exc:
+            logger.error('DeepSeek summarize failed: %s', exc)
             fallback['raw_ai_output'] = str(exc)
             return fallback
 class LeadWorkflowService:

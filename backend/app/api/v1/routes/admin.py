@@ -11,7 +11,7 @@ from app.core.errors import NotFoundError
 from app.core.security import AuthUser, require_super_admin
 from pydantic import BaseModel
 from app.models.domain import Business, BusinessMember, Profile, Lead, AuditLog, Form, EmailEvent
-from app.models.enums import BusinessStatus, ProfileRole, EmailStatus
+from app.models.enums import BusinessStatus, ProfileRole, EmailStatus, LeadStatus
 from app.schemas.common import APIResponse
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessRead
 from app.services.core_services import BusinessService
@@ -341,7 +341,10 @@ async def admin_leads(
     if business_id:
         q = q.where(Lead.business_id == business_id)
     if status:
-        q = q.where(cast(Lead.status, func.text('text')) == status)
+        try:
+            q = q.where(Lead.status == LeadStatus(status))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f'Invalid status: {status}')
     q = q.order_by(Lead.created_at.desc()).limit(limit).offset(offset)
     rows = (await db.execute(q)).all()
     total = (await db.execute(select(func.count()).select_from(Lead))).scalar_one()
@@ -412,9 +415,9 @@ async def update_automation(
         biz.owner_approval_required = payload.owner_approval_required
         changed['owner_approval_required'] = payload.owner_approval_required
     if changed:
+        await _log(db, user.id, 'automation_updated', biz.id, {'fields': list(changed.keys()), 'name': biz.name})
         await db.commit()
         await db.refresh(biz)
-        await _log(db, user.id, 'automation_updated', biz.id, {'fields': list(changed.keys()), 'name': biz.name})
     return APIResponse(data={
         'business_id': str(biz.id),
         'smart_auto_reply': biz.smart_auto_reply,
