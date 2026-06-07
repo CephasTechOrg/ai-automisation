@@ -37,12 +37,18 @@ async def business_id(db,user_id):
 async def leads(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db),limit:int=Query(50,le=100),offset:int=Query(0,ge=0)):
     bid=await business_id(db,user.id)
     rows=(await db.execute(select(Lead).where(Lead.business_id==bid).order_by(Lead.created_at.desc()).limit(limit).offset(offset))).scalars().all()
-    auto_ids=set(r[0] for r in (await db.execute(select(Message.lead_id).where(Message.business_id==bid,Message.message_type==MessageType.AUTO_REPLY).distinct())).all())
+    # ai_replied = personalized AI reply sent (subject starts with 'Re:')
+    # acknowledged = generic ack sent (subject starts with 'We received')
+    personalized_ids=set(r[0] for r in (await db.execute(select(Message.lead_id).where(Message.business_id==bid,Message.message_type==MessageType.AUTO_REPLY,Message.subject.like('Re:%')).distinct())).all())
+    ack_ids=set(r[0] for r in (await db.execute(select(Message.lead_id).where(Message.business_id==bid,Message.message_type==MessageType.AUTO_REPLY,Message.subject.like('We received%')).distinct())).all())
     owner_ids=set(r[0] for r in (await db.execute(select(Message.lead_id).where(Message.business_id==bid,Message.message_type==MessageType.OWNER_REPLY).distinct())).all())
     result=[]
     for row in rows:
         lr=LeadRead.model_validate(row)
-        cs='ai_replied' if row.id in auto_ids else ('owner_replied' if row.id in owner_ids else 'acknowledged')
+        if row.id in personalized_ids: cs='ai_replied'
+        elif row.id in owner_ids: cs='owner_replied'
+        elif row.id in ack_ids: cs='acknowledged'
+        else: cs='new'
         result.append(lr.model_copy(update={'comm_status':cs}))
     return APIResponse(data=result)
 @router.get('/leads/{lead_id}',response_model=APIResponse[dict])
@@ -82,7 +88,7 @@ async def messages(lead_id:UUID,user:AuthUser=Depends(require_owner_or_staff),db
     lead=await db.get(Lead,lead_id)
     if not lead: raise NotFoundError('Lead not found')
     if lead.business_id != await business_id(db,user.id): raise ForbiddenError('Wrong business')
-    rows=(await db.execute(select(Message).where(Message.lead_id==lead_id).order_by(Message.created_at.asc()))).scalars().all(); return APIResponse(data=[{'id':str(x.id),'type':x.message_type,'direction':x.direction,'content':x.content,'created_at':x.created_at.isoformat()} for x in rows])
+    rows=(await db.execute(select(Message).where(Message.lead_id==lead_id).order_by(Message.created_at.asc()))).scalars().all(); return APIResponse(data=[{'id':str(x.id),'type':x.message_type,'direction':x.direction,'content':x.content,'subject':x.subject,'created_at':x.created_at.isoformat()} for x in rows])
 @router.get('/business',response_model=APIResponse[BusinessRead])
 async def owner_business(user:AuthUser=Depends(require_owner_or_staff),db:AsyncSession=Depends(get_db)):
     bid=await business_id(db,user.id)

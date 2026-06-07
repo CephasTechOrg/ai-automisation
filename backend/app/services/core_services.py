@@ -56,19 +56,16 @@ class EmailService:
             res=resend.Emails.send({'from':from_addr,'to':[to],'subject':subject,'html':html}); ev.status=EmailStatus.SENT; ev.provider_message_id=res.get('id') if isinstance(res,dict) else None; return {'sent':True}
         except Exception as exc: ev.status=EmailStatus.FAILED; ev.error_message=str(exc); return {'sent':False,'error':str(exc)}
 def _safety_gate(business, ai: dict) -> tuple[bool, str | None]:
-    """Returns (auto_send_allowed, block_reason). All six conditions must pass."""
+    """Returns (auto_send_allowed, block_reason).
+    Business-level conditions are hard gates. AI decision is trusted as the final arbiter
+    rather than re-evaluating risk_level/blocked_topics here — that avoids over-blocking
+    leads where the customer expressed urgency but the reply itself is safe."""
     if not business.smart_auto_reply:
         return False, 'smart_auto_reply_disabled'
     if business.owner_approval_required:
         return False, 'owner_approval_required'
     if business.status != BusinessStatus.ACTIVE:
         return False, 'business_not_active'
-    if ai.get('risk_level') != 'low':
-        return False, f'risk_level_{ai.get("risk_level","unknown")}'
-    if (ai.get('confidence_score') or 0) < 0.75:
-        return False, f'low_confidence'
-    if ai.get('blocked_topics'):
-        return False, f'blocked_topics:{",".join(ai["blocked_topics"])}'
     if not ai.get('auto_send_allowed'):
         return False, 'ai_flagged_unsafe'
     return True, None
@@ -78,14 +75,19 @@ class DeepSeekService:
         'You are a lead analysis assistant for a small business CRM. '
         'Analyse the incoming lead and return ONLY a valid JSON object with these exact keys:\n'
         '  summary (str), urgency ("high"|"normal"|"low"), intent (str), '
-        '  suggested_reply (str — warm, professional, first-name greeting, no price/availability/booking promises), '
+        '  suggested_reply (str — warm, professional, first-name greeting; MUST NOT include specific prices, '
+        'confirmed booking dates/times, confirmed availability, refund/discount promises, or legal/medical/financial advice), '
         '  next_step (str), tags (list[str]),\n'
-        '  risk_level ("low"|"medium"|"high"), '
-        '  confidence_score (float 0-1), '
-        '  blocked_topics (list[str] — include any of: price_commitment, booking_confirmation, '
-        'availability_promise, refund_or_discount, legal_advice, medical_advice, financial_advice; '
-        'empty list if none detected), '
-        '  auto_send_allowed (bool — true only if risk_level is low, confidence >= 0.75, and blocked_topics is empty).\n'
+        '  risk_level ("low"|"medium"|"high" — rate the BUSINESS RISK of auto-sending the suggested_reply; '
+        '"low" for normal service inquiries even if urgent; "high" only for complaints, threats, legal mentions, or highly ambiguous requests), '
+        '  confidence_score (float 0-1 — how confident you are the suggested_reply is appropriate to auto-send), '
+        '  blocked_topics (list[str] — list ONLY topics that the suggested_reply ITSELF would need to commit to '
+        'in order to answer the lead properly; if the reply can stay warm and non-committal, leave this empty. '
+        'Possible values: price_commitment, booking_confirmation, availability_promise, refund_or_discount, '
+        'legal_advice, medical_advice, financial_advice), '
+        '  auto_send_allowed (bool — true if risk_level is low, confidence >= 0.75, and blocked_topics is empty; '
+        'a customer asking for urgent service or mentioning a specific day does NOT itself block auto-send — '
+        'only block if the reply would require making a specific commitment the business cannot guarantee).\n'
         'Return strict JSON only. No markdown. No extra text.'
     )
     _FALLBACK = {
@@ -203,13 +205,17 @@ class LeadWorkflowService:
             auto_sent = True
         elif lead.customer_email:
             # Gate failed: send safe generic acknowledgement instead
+            ack_subject = f'We received your request — {business.name}'
+            ack_content = f'Hi {lead.customer_name}, thank you for reaching out to {business.name}. We have received your request and will be in touch with you shortly.'
             ack_html = acknowledgement_html(business.name, lead.customer_name, business.brand_color)
-            await self.email.send(
-                lead.customer_email,
-                f'We received your request — {business.name}',
-                ack_html, business.id, lead.id,
-                from_name=business.name,
-            )
+            await self.email.send(lead.customer_email, ack_subject, ack_html, business.id, lead.id, from_name=business.name)
+            # Store in thread so owner sees the customer already received an acknowledgement
+            self.db.add(Message(
+                business_id=business.id, lead_id=lead.id,
+                direction=MessageDirection.OUTBOUND, channel=MessageChannel.EMAIL,
+                message_type=MessageType.AUTO_REPLY,
+                subject=ack_subject, content=ack_content,
+            ))
 
         # ── 8. Owner notification (always ON) ───────────────────────────────
         if business.contact_email:

@@ -22,6 +22,7 @@ interface MsgItem {
   type: string
   direction: string
   content: string
+  subject?: string | null
   created_at: string
 }
 
@@ -126,7 +127,10 @@ function SystemBanner({ icon, label, content, color }: { icon: string; label: st
 function MsgBubble({ msg }: { msg: MsgItem }) {
   if (msg.type === 'customer_message') return <CustomerBubble msg={msg} />
   if (msg.type === 'owner_reply')      return <OwnerBubble msg={msg} />
-  if (msg.type === 'auto_reply')       return <SystemBanner icon="sparkles" label="AI replied to customer" content={msg.content} color="green" />
+  if (msg.type === 'auto_reply') {
+    const isPersonalized = msg.subject?.startsWith('Re:') ?? true
+    return <SystemBanner icon="sparkles" label={isPersonalized ? 'AI replied to customer' : 'Acknowledgement sent to customer'} content={msg.content} color="green" />
+  }
   if (msg.type === 'follow_up')        return <SystemBanner icon="send"     label="Follow-up sent"          content={msg.content} color="gray" />
   return null
 }

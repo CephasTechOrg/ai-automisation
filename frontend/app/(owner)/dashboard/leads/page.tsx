@@ -35,6 +35,7 @@ interface MsgItem {
   type: string
   direction: string
   content: string
+  subject?: string | null
   created_at: string
 }
 
