@@ -199,10 +199,16 @@ function FormUrlCard({ form, formUrl, patchForm }: {
       </div>
 
       {!editing ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+        <a
+          href={formUrl ?? '#'}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8, border: '1px solid var(--border)', textDecoration: 'none', cursor: 'pointer' }}
+        >
           <Icon name="link" size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-          <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', fontFamily: 'monospace', wordBreak: 'break-all' }}>{formUrl}</span>
-        </div>
+          <span style={{ fontSize: 13.5, color: 'var(--primary)', fontFamily: 'monospace', wordBreak: 'break-all', textDecoration: 'underline', textUnderlineOffset: 3 }}>{formUrl}</span>
+          <Icon name="externalLink" size={13} style={{ color: 'var(--text-muted)', flexShrink: 0, marginLeft: 'auto' }} />
+        </a>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 13px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>

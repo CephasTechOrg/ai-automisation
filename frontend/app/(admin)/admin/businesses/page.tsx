@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Icon, Badge, Avatar, BrandTile, Card, Select, Menu, Pagination, Donut, EmptyState, toast, useIsMobile } from '@/components/ui'
 import { api } from '@/lib/api/client'
 import { useApiToken } from '@/lib/hooks/useApiToken'
-import { INDUSTRIES } from '@/lib/data/mock'
+const INDUSTRIES = ['Home Services', 'Landscaping', 'Real Estate', 'Cleaning Services', 'Health & Wellness', 'Roofing', 'Fitness', 'Plumbing', 'Retail', 'Pet Services']
 
 
 interface BusinessRead {

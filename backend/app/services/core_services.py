@@ -35,13 +35,25 @@ class BusinessService:
         except Exception as exc:
             self.db.add(AuditLog(actor_user_id=actor_user_id,business_id=b.id,action='owner.invite.failed',details={'error':str(exc)}))
         await self.db.flush(); return b,f
+import re as _re
+def _build_from(display_name: str | None) -> str:
+    """Build a From address like 'Business Name <addr@domain>'. The verified sending
+    address is always taken from settings; only the display name is swapped out."""
+    match = _re.search(r'<([^>]+)>', settings.RESEND_FROM_EMAIL)
+    addr = match.group(1) if match else settings.RESEND_FROM_EMAIL
+    if display_name:
+        safe = display_name.replace('"', "'")
+        return f'"{safe}" <{addr}>'
+    return settings.RESEND_FROM_EMAIL
+
 class EmailService:
     def __init__(self,db): self.db=db; resend.api_key=settings.RESEND_API_KEY if settings.RESEND_API_KEY else None
-    async def send(self,to,subject,html,business_id=None,lead_id=None):
-        ev=EmailEvent(business_id=business_id,lead_id=lead_id,to_email=to,from_email=settings.RESEND_FROM_EMAIL,subject=subject,status=EmailStatus.QUEUED); self.db.add(ev); await self.db.flush()
+    async def send(self,to,subject,html,business_id=None,lead_id=None,from_name:str|None=None):
+        from_addr = _build_from(from_name)
+        ev=EmailEvent(business_id=business_id,lead_id=lead_id,to_email=to,from_email=from_addr,subject=subject,status=EmailStatus.QUEUED); self.db.add(ev); await self.db.flush()
         if not settings.RESEND_API_KEY: ev.status=EmailStatus.FAILED; ev.error_message='Missing RESEND_API_KEY'; return {'sent':False}
         try:
-            res=resend.Emails.send({'from':settings.RESEND_FROM_EMAIL,'to':[to],'subject':subject,'html':html}); ev.status=EmailStatus.SENT; ev.provider_message_id=res.get('id') if isinstance(res,dict) else None; return {'sent':True}
+            res=resend.Emails.send({'from':from_addr,'to':[to],'subject':subject,'html':html}); ev.status=EmailStatus.SENT; ev.provider_message_id=res.get('id') if isinstance(res,dict) else None; return {'sent':True}
         except Exception as exc: ev.status=EmailStatus.FAILED; ev.error_message=str(exc); return {'sent':False,'error':str(exc)}
 def _safety_gate(business, ai: dict) -> tuple[bool, str | None]:
     """Returns (auto_send_allowed, block_reason). All six conditions must pass."""
@@ -181,7 +193,7 @@ class LeadWorkflowService:
             # Gate passed: send personalized AI reply (this IS the acknowledgement)
             reply_subject = f'Re: Your {lead.service_needed or "service"} request — {business.name}'
             reply_html = auto_reply_html(business.name, lead.customer_name, suggested_reply, business.brand_color)
-            await self.email.send(lead.customer_email, reply_subject, reply_html, business.id, lead.id)
+            await self.email.send(lead.customer_email, reply_subject, reply_html, business.id, lead.id, from_name=business.name)
             self.db.add(Message(
                 business_id=business.id, lead_id=lead.id,
                 direction=MessageDirection.OUTBOUND, channel=MessageChannel.EMAIL,
@@ -196,6 +208,7 @@ class LeadWorkflowService:
                 lead.customer_email,
                 f'We received your request — {business.name}',
                 ack_html, business.id, lead.id,
+                from_name=business.name,
             )
 
         # ── 8. Owner notification (always ON) ───────────────────────────────

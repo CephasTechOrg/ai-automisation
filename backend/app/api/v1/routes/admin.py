@@ -9,8 +9,9 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.errors import NotFoundError
 from app.core.security import AuthUser, require_super_admin
-from app.models.domain import Business, BusinessMember, Profile, Lead, AuditLog, Form
-from app.models.enums import BusinessStatus
+from pydantic import BaseModel
+from app.models.domain import Business, BusinessMember, Profile, Lead, AuditLog, Form, EmailEvent
+from app.models.enums import BusinessStatus, ProfileRole, EmailStatus
 from app.schemas.common import APIResponse
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessRead
 from app.services.core_services import BusinessService
@@ -296,3 +297,193 @@ async def audit_logs(
         'details': r.AuditLog.details or {},
         'created_at': r.AuditLog.created_at.isoformat(),
     } for r in rows])
+
+
+# ── Owners ───────────────────────────────────────────────────────────────────
+
+@router.get('/owners', response_model=APIResponse[list[dict]])
+async def list_owners(
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(
+        select(Profile, Business.name.label('biz_name'), Business.id.label('biz_id'),
+               BusinessMember.role.label('mem_role'), BusinessMember.is_active.label('mem_active'))
+        .outerjoin(BusinessMember, BusinessMember.user_id == Profile.id)
+        .outerjoin(Business, Business.id == BusinessMember.business_id)
+        .where(Profile.role == ProfileRole.BUSINESS_OWNER)
+        .order_by(Profile.created_at.desc())
+    )).all()
+    return APIResponse(data=[{
+        'id': str(r.Profile.id),
+        'email': r.Profile.email,
+        'full_name': r.Profile.full_name or '',
+        'created_at': r.Profile.created_at.isoformat(),
+        'business_name': r.biz_name,
+        'business_id': str(r.biz_id) if r.biz_id else None,
+        'member_role': str(r.mem_role) if r.mem_role else None,
+        'is_active': r.mem_active if r.mem_active is not None else True,
+    } for r in rows])
+
+
+# ── Cross-business Leads ──────────────────────────────────────────────────────
+
+@router.get('/leads', response_model=APIResponse[list[dict]])
+async def admin_leads(
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+    business_id: UUID | None = Query(None),
+    status: str | None = Query(None),
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+):
+    q = select(Lead, Business.name.label('biz_name')).join(Business, Business.id == Lead.business_id)
+    if business_id:
+        q = q.where(Lead.business_id == business_id)
+    if status:
+        q = q.where(cast(Lead.status, func.text('text')) == status)
+    q = q.order_by(Lead.created_at.desc()).limit(limit).offset(offset)
+    rows = (await db.execute(q)).all()
+    total = (await db.execute(select(func.count()).select_from(Lead))).scalar_one()
+    return APIResponse(data=[{
+        'id': str(r.Lead.id),
+        'customer_name': r.Lead.customer_name,
+        'customer_email': r.Lead.customer_email,
+        'customer_phone': r.Lead.customer_phone,
+        'service_needed': r.Lead.service_needed,
+        'status': str(r.Lead.status),
+        'source': r.Lead.source,
+        'business_name': r.biz_name,
+        'business_id': str(r.Lead.business_id),
+        'created_at': r.Lead.created_at.isoformat(),
+    } for r in rows], meta={'total': total})
+
+
+# ── Automations ───────────────────────────────────────────────────────────────
+
+class AutomationUpdate(BaseModel):
+    smart_auto_reply: bool | None = None
+    owner_approval_required: bool | None = None
+
+@router.get('/automations', response_model=APIResponse[list[dict]])
+async def list_automations(
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    biz_rows = (await db.execute(
+        select(Business).where(Business.status != BusinessStatus.ARCHIVED).order_by(Business.name)
+    )).scalars().all()
+    biz_ids = [b.id for b in biz_rows]
+    forms_map: dict = {}
+    if biz_ids:
+        frows = (await db.execute(select(Form).where(Form.business_id.in_(biz_ids)))).scalars().all()
+        forms_map = {f.business_id: f for f in frows}
+    lead_counts_rows = (await db.execute(
+        select(Lead.business_id, func.count(Lead.id).label('cnt'))
+        .where(Lead.business_id.in_(biz_ids))
+        .group_by(Lead.business_id)
+    )).all()
+    lead_counts = {r.business_id: r.cnt for r in lead_counts_rows}
+    return APIResponse(data=[{
+        'business_id': str(b.id),
+        'business_name': b.name,
+        'business_status': str(b.status),
+        'smart_auto_reply': b.smart_auto_reply,
+        'owner_approval_required': b.owner_approval_required,
+        'form_active': forms_map[b.id].is_active if b.id in forms_map else False,
+        'lead_count': lead_counts.get(b.id, 0),
+    } for b in biz_rows])
+
+@router.patch('/automations/{business_id}', response_model=APIResponse[dict])
+async def update_automation(
+    business_id: UUID,
+    payload: AutomationUpdate,
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    biz = await db.get(Business, business_id)
+    if not biz:
+        raise NotFoundError('Business not found')
+    changed = {}
+    if payload.smart_auto_reply is not None:
+        biz.smart_auto_reply = payload.smart_auto_reply
+        changed['smart_auto_reply'] = payload.smart_auto_reply
+    if payload.owner_approval_required is not None:
+        biz.owner_approval_required = payload.owner_approval_required
+        changed['owner_approval_required'] = payload.owner_approval_required
+    if changed:
+        await db.commit()
+        await db.refresh(biz)
+        await _log(db, user.id, 'automation_updated', biz.id, {'fields': list(changed.keys()), 'name': biz.name})
+    return APIResponse(data={
+        'business_id': str(biz.id),
+        'smart_auto_reply': biz.smart_auto_reply,
+        'owner_approval_required': biz.owner_approval_required,
+    })
+
+
+# ── Emails ────────────────────────────────────────────────────────────────────
+
+@router.get('/emails', response_model=APIResponse[list[dict]])
+async def admin_emails(
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+    status: str | None = Query(None),
+    limit: int = Query(100, le=500),
+):
+    q = (select(EmailEvent, Business.name.label('biz_name'), Lead.customer_name.label('lead_name'))
+         .outerjoin(Business, Business.id == EmailEvent.business_id)
+         .outerjoin(Lead, Lead.id == EmailEvent.lead_id))
+    if status:
+        q = q.where(cast(EmailEvent.status, func.text('text')) == status)
+    q = q.order_by(EmailEvent.created_at.desc()).limit(limit)
+    rows = (await db.execute(q)).all()
+    total_sent = (await db.execute(
+        select(func.count()).select_from(EmailEvent).where(EmailEvent.status == EmailStatus.SENT)
+    )).scalar_one()
+    total_failed = (await db.execute(
+        select(func.count()).select_from(EmailEvent).where(EmailEvent.status == EmailStatus.FAILED)
+    )).scalar_one()
+    return APIResponse(data=[{
+        'id': str(r.EmailEvent.id),
+        'to_email': r.EmailEvent.to_email,
+        'from_email': r.EmailEvent.from_email,
+        'subject': r.EmailEvent.subject,
+        'status': str(r.EmailEvent.status),
+        'provider': r.EmailEvent.provider,
+        'error_message': r.EmailEvent.error_message,
+        'business_name': r.biz_name or '—',
+        'lead_name': r.lead_name or '—',
+        'created_at': r.EmailEvent.created_at.isoformat(),
+    } for r in rows], meta={'total_sent': total_sent, 'total_failed': total_failed})
+
+
+# ── Platform Settings ─────────────────────────────────────────────────────────
+
+@router.get('/settings', response_model=APIResponse[dict])
+async def admin_settings_get(
+    user: AuthUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    total_leads = (await db.execute(select(func.count()).select_from(Lead))).scalar_one()
+    total_emails = (await db.execute(select(func.count()).select_from(EmailEvent))).scalar_one()
+    emails_sent = (await db.execute(
+        select(func.count()).select_from(EmailEvent).where(EmailEvent.status == EmailStatus.SENT)
+    )).scalar_one()
+    total_biz = (await db.execute(select(func.count()).select_from(Business))).scalar_one()
+    active_biz = (await db.execute(
+        select(func.count()).select_from(Business).where(Business.status == BusinessStatus.ACTIVE)
+    )).scalar_one()
+    return APIResponse(data={
+        'ai_model': settings.DEEPSEEK_MODEL,
+        'email_provider': 'Resend',
+        'resend_configured': bool(settings.RESEND_API_KEY),
+        'deepseek_configured': bool(settings.DEEPSEEK_API_KEY),
+        'resend_from': settings.RESEND_FROM_EMAIL,
+        'platform_name': 'LeadFlow Pro',
+        'total_businesses': total_biz,
+        'active_businesses': active_biz,
+        'total_leads': total_leads,
+        'total_emails_sent': emails_sent,
+        'emails_failed': total_emails - emails_sent,
+    })

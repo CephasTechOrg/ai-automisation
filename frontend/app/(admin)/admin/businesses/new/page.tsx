@@ -79,6 +79,8 @@ export default function AdminCreateBusinessPage() {
         contact_email: f.email || null,
         address: f.address || null,
         brand_color: f.color,
+        smart_auto_reply: f.autoReply,
+        owner_approval_required: !f.autoReply,
         owner: {
           full_name: f.ownerName.trim(),
           email: f.ownerEmail.trim(),

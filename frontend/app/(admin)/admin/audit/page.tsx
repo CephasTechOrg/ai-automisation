@@ -49,6 +49,23 @@ function detailsSummary(details: Record<string, unknown>): string {
   return keys.map(k => `${k}: ${details[k]}`).join(', ')
 }
 
+function exportCsv(rows: AuditEntry[]) {
+  const header = ['Timestamp', 'Actor', 'Business', 'Action', 'Details']
+  const lines = rows.map(r => [
+    formatTs(r.created_at),
+    r.actor_email,
+    r.business_name,
+    r.action,
+    detailsSummary(r.details).replace(/,/g, ';'),
+  ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+  const csv = [header.join(','), ...lines].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click(); URL.revokeObjectURL(url)
+}
+
 export default function AdminAuditPage() {
   const token = useApiToken()
   const isMobile = useIsMobile(820)
@@ -88,7 +105,7 @@ export default function AdminAuditPage() {
           <h1 className="page-title">Audit Logs</h1>
           <p className="page-subtitle">Track every system action for safety and accountability.</p>
         </div>
-        <button className="btn btn-secondary" onClick={() => toast('Logs exported')}>
+        <button className="btn btn-secondary" onClick={() => exportCsv(rows)}>
           <Icon name="upload" size={16} /> Export CSV
         </button>
       </div>

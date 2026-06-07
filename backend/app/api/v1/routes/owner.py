@@ -67,7 +67,7 @@ async def send_reply(lead_id:UUID,payload:OwnerReplyCreate,user:AuthUser=Depends
         business=await db.get(Business,bid)
         html=owner_reply_html(business.name,lead.customer_name,payload.content,business.brand_color)
         subject=f"Re: Your {lead.service_needed or 'service'} request — {business.name}"
-        await EmailService(db).send(lead.customer_email,subject,html,business_id=bid,lead_id=lead_id)
+        await EmailService(db).send(lead.customer_email,subject,html,business_id=bid,lead_id=lead_id,from_name=business.name)
     await db.commit()
     await db.refresh(msg)
     return APIResponse(data={'id':str(msg.id),'type':msg.message_type.value,'direction':msg.direction.value,'content':msg.content,'created_at':msg.created_at.isoformat()})
@@ -147,7 +147,7 @@ async def update_followup(followup_id:UUID,payload:FollowUpUpdate,user:AuthUser=
                 content=fu.content or f'Hi {lead.customer_name}, just following up on your recent request. Are you still interested?'
                 html=followup_html(business.name,lead.customer_name,content,business.brand_color)
                 subject=fu.subject or f'Following up — {business.name}'
-                await EmailService(db).send(lead.customer_email,subject,html,business_id=bid,lead_id=lead.id)
+                await EmailService(db).send(lead.customer_email,subject,html,business_id=bid,lead_id=lead.id,from_name=business.name)
     if payload.scheduled_at: fu.scheduled_at=payload.scheduled_at
     await db.commit()
     return APIResponse(data={'id':str(fu.id),'status':fu.status.value,'scheduled_at':fu.scheduled_at.isoformat(),'sent_at':fu.sent_at.isoformat() if fu.sent_at else None})
