@@ -46,13 +46,15 @@ export default function PublicFormPage() {
     setErrs(e => ({ ...e, [k]: undefined }))
   }
 
+  const hasServices = (config?.services ?? []).length > 0
+
   function validate(): FormErrors {
     const e: FormErrors = {}
     if (!form.name) e.name = 'Please enter your name.'
     if (!form.email) e.email = 'Email is required.'
     else if (!/^[^@]+@[^@]+\.[^@]+$/.test(form.email)) e.email = 'Enter a valid email.'
     if (!form.phone) e.phone = 'Phone is required.'
-    if (!form.service) e.service = 'Please select a service.'
+    if (hasServices && !form.service) e.service = 'Please select a service.'
     return e
   }
 
@@ -158,8 +160,11 @@ export default function PublicFormPage() {
                     <Field label="Phone Number" required error={errs.phone}>
                       <Input icon="phone" placeholder="(555) 123-4567" value={form.phone} error={!!errs.phone} onChange={e => set('phone', e.target.value)} />
                     </Field>
-                    <Field label="Service Needed" required error={errs.service}>
-                      <Select options={config?.services ?? []} value={form.service} placeholder="Select a service" onChange={v => set('service', v)} />
+                    <Field label="Service Needed" required={hasServices} error={errs.service}>
+                      {hasServices
+                        ? <Select options={config?.services ?? []} value={form.service} placeholder="Select a service" onChange={v => set('service', v)} />
+                        : <Input placeholder="Describe the service you need" value={form.service} onChange={e => set('service', e.target.value)} />
+                      }
                     </Field>
                     <Field label="Preferred Date">
                       <Input icon="calendar" placeholder="Select a date" value={form.date} onChange={e => set('date', e.target.value)} />

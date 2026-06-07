@@ -183,7 +183,14 @@ export default function LeadsPage() {
   function selectLead(id: string) {
     setSelId(id)
     setMobileDetail(true)
+    const lead = leads.find(l => l.id === id)
+    // Clear unread dot immediately
     setLeads(ls => ls.map(l => l.id === id ? { ...l, unread: false } : l))
+    // Persist: if still "new", mark as contacted so the badge clears on next load too
+    if (lead?.status === 'new' && token) {
+      setLeads(ls => ls.map(l => l.id === id ? { ...l, status: 'contacted', displayStatus: 'Contacted' } : l))
+      api.patch(`/owner/leads/${id}/status`, { status: 'contacted' }, token).catch(() => {})
+    }
   }
 
   return (

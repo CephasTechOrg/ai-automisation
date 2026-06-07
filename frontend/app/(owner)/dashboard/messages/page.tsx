@@ -231,6 +231,12 @@ export default function MessagesPage() {
     setReply('')
     setMobileThread(true)
     loadThread(id)
+    // Mark as seen — if still "new", quietly update to "contacted"
+    const lead = leads.find(l => l.id === id)
+    if (lead?.status === 'new' && token) {
+      setLeads(ls => ls.map(l => l.id === id ? { ...l, status: 'contacted' } : l))
+      api.patch(`/owner/leads/${id}/status`, { status: 'contacted' }, token).catch(() => {})
+    }
   }
 
   async function sendReply(text: string) {
