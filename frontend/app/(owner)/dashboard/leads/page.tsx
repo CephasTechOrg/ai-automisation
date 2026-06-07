@@ -516,7 +516,10 @@ function MsgBubble({ msg }: { msg: MsgItem }) {
   const time = new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   if (msg.type === 'customer_message') return <CustomerBubble msg={msg} />
   if (msg.type === 'owner_reply')      return <OwnerBubble msg={msg} />
-  if (msg.type === 'auto_reply')       return <ThreadBanner color="green" icon="sparkles" label="AI replied to customer" content={msg.content} time={time} />
+  if (msg.type === 'auto_reply') {
+    const isPersonalized = msg.subject?.startsWith('Re:') ?? true
+    return <ThreadBanner color="green" icon="sparkles" label={isPersonalized ? 'AI replied to customer' : 'Acknowledgement sent to customer'} content={msg.content} time={time} />
+  }
   if (msg.type === 'follow_up')        return <ThreadBanner color="gray"  icon="send"     label="Follow-up sent"          content={msg.content} time={time} />
   return null
 }
